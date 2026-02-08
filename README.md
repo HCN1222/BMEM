@@ -6,6 +6,10 @@
 ## API
 [Finmind](https://finmindtrade.com/analysis/#/data/api)
 
+## Setup
+1. add `.env` under `root folder` and enter `FINMIND_API_KEY = KEY` in `.env`
+
+
 ### 預計進度
 1. 先跑 Baseline 0（事件日買超 → T+1 進 → 固定持有）
 2. 股票池限制在流動性高的（避免滑價假象）
