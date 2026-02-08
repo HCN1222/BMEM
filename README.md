@@ -17,3 +17,10 @@
 1. 利用HMM (sticky HMM)去分析外資目的(建倉/持倉)
 2. 利用1.分析多加外資
 接著再利用 Gradient Boosted Decision Tree
+
+### Instructions
+
+- `download_merrill_activity.py`: 抓取卷商分點資料
+```
+python download_merrill_activity.py --start 2025-01-01 --end 2025-12-31 --format parquet
+```
