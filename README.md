@@ -1,5 +1,5 @@
 # BMEM
-## Believe Merlin Enjoy Michelin
+## Believe Merrill Enrich the Meal
 分析外資的持倉狀態，縮小選股範圍
 目標是波段交易
 
@@ -7,7 +7,7 @@
 [Finmind](https://finmindtrade.com/analysis/#/data/api)
 
 ## Setup
-1. add `.env` under `root folder` and enter `FINMIND_API_KEY = KEY` in `.env`
+1. add your **API KEY** in `.env.example` and rename the file as `.env`
 
 
 ### 預計進度

@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--trader-id", default="1440", help="券商代碼；美林預設 1440")
     parser.add_argument("--outdir", default="../data", help="輸出資料夾（預設 ../data)")
-    parser.add_argument("--sleep", type=float, default=0.1, help="每次 request 間隔秒數（預設 0.1)")
+    parser.add_argument("--sleep", type=float, default=0.2, help="每次 request 間隔秒數（預設 0.2)")
     parser.add_argument("--format", choices=["parquet", "csv"], default="parquet", help="輸出格式")
     args = parser.parse_args()
 
