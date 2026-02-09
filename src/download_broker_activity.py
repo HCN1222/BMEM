@@ -1,4 +1,4 @@
-# download_merrill_activity.py
+# download_broker_activity.py
 import os
 import json
 import time
@@ -35,7 +35,7 @@ def save_df(df: pd.DataFrame, out_path: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download Merrill (1440) trading activity across all Taiwan stocks via FinMind."
+        description="Download Broker ( default: Merrill (1440) ) trading activity across all Taiwan stocks via FinMind."
     )
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (inclusive)")
