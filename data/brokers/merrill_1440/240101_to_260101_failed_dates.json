@@ -1,0 +1,158 @@
+[
+  {
+    "date": "2024-01-01",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-06",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-07",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-08",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-09",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-12",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-13",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-14",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-02-28",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-04-04",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-04-05",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-05-01",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-06-10",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-07-24",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-07-25",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-09-17",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-10-02",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-10-03",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-10-10",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2024-10-31",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-01",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-23",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-24",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-27",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-28",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-29",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-30",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-01-31",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-02-28",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-04-03",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-04-04",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-05-01",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-05-30",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-09-29",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-10-06",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-10-10",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-10-24",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2025-12-25",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  },
+  {
+    "date": "2026-01-01",
+    "error": "KeyError(\"None of [Index(['stock_id', 'Trading_Volume'], dtype='str')] are in the [columns]\")"
+  }
+]
