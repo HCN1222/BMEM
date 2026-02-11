@@ -5,6 +5,9 @@
 
 ## API
 [Finmind](https://finmindtrade.com/analysis/#/data/api)
+籌碼面資料缺失
+
+![籌碼面資料缺失](./img/image.png)
 
 ## Setup
 1. add your **API KEY** in `.env.example` and rename the file as `.env`
