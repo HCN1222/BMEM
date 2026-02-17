@@ -1,10 +1,10 @@
 {
-  "created_at": "2026-02-09T00:04:15",
+  "created_at": "2026-02-12T00:14:00",
   "securities_trader_id": "1440",
-  "start_date": "2024-01-01",
-  "end_date": "2026-01-01",
-  "rows": 700345,
-  "unique_stocks": 2130,
-  "failed_dates_count": 39,
-  "output_file": "..\\data\\merrill_1440_activity_2024-01-01_to_2026-01-01_20260209_000415.parquet"
+  "start_date": "2021-06-30",
+  "end_date": "2026-02-11",
+  "rows": 1458040,
+  "unique_stocks": 2195,
+  "failed_dates_count": 78,
+  "output_file": "..\\data\\merrill_1440_activity_2021-06-30_to_2026-02-11_20260212_001359.parquet"
 }

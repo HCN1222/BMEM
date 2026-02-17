@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--trader-id", default="1440", help="券商代碼；美林預設 1440")
     parser.add_argument("--outdir", default="../data", help="輸出資料夾（預設 ../data)")
-    parser.add_argument("--sleep", type=float, default=0.2, help="每次 request 間隔秒數（預設 0.2)")
+    parser.add_argument("--sleep", type=float, default=0.1, help="每次 request 間隔秒數（預設 0.1)")
     parser.add_argument("--format", choices=["parquet", "csv"], default="parquet", help="輸出格式")
     args = parser.parse_args()
 
@@ -94,8 +94,6 @@ def main():
             agg["net_buy_amount"] = agg["buy_amount"] - agg["sell_amount"]
             agg["avg_price"] = agg["net_buy_amount"] / agg["net_buy"]
 
-            agg = agg.drop(["buy", "sell", "buy_amount", "sell_amount",], axis=1)
-
             all_agg.append(agg)
 
         except Exception as e:
@@ -115,7 +113,7 @@ def main():
         )
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = f"merrill_{args.trader_id}_activity_{args.start}_to_{args.end}_{stamp}"
+    fname = f"{result["securities_trader"][0]}_{args.trader_id}_activity_{args.start}_to_{args.end}_{stamp}"
     out_file = outdir / (fname + (".parquet" if args.format == "parquet" else ".csv"))
     save_df(result, out_file)
 
