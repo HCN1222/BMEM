@@ -1,0 +1,9 @@
+{
+  "created_at": "2026-02-23T20:14:33",
+  "mode": "list",
+  "stock_id": "00706L",
+  "start_date": "2021-06-30",
+  "end_date": "2026-02-11",
+  "rows": 1123,
+  "output_file": "data\\stocks\\00706L_2021-06-30_to_2026-02-11.parquet"
+}

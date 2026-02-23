@@ -40,7 +40,7 @@ def main():
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--trader-id", default="1440", help="券商代碼；美林預設 1440")
-    parser.add_argument("--outdir", default="../data", help="輸出資料夾（預設 ../data)")
+    parser.add_argument("--outdir", default="./data/brokers", help="輸出資料夾（預設 ./data)")
     parser.add_argument("--sleep", type=float, default=0.1, help="每次 request 間隔秒數（預設 0.1)")
     parser.add_argument("--format", choices=["parquet", "csv"], default="parquet", help="輸出格式")
     args = parser.parse_args()
@@ -48,8 +48,8 @@ def main():
     load_dotenv()
     token = os.environ["FINMIND_API_KEY"]
 
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    outdir = Path(f"{args.outdir}/{args.trader_id}")
+    outdir.mkdir(parents=True, exist_ok=False)
 
     api = DataLoader()
     api.login_by_token(api_token=token)
@@ -112,8 +112,7 @@ def main():
             columns=["date", "stock_id", "securities_trader", "securities_trader_id", "buy", "sell", "net_buy"]
         )
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = f"{result["securities_trader"][0]}_{args.trader_id}_activity_{args.start}_to_{args.end}_{stamp}"
+    fname = f"{args.start}_to_{args.end}"
     out_file = outdir / (fname + (".parquet" if args.format == "parquet" else ".csv"))
     save_df(result, out_file)
 

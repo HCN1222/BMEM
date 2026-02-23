@@ -1,4 +1,8 @@
 # BMEM
+
+## Reference
+- [Discrete HMM](https://youtu.be/JRsdt05pMoI?si=wjkP7rq9asWZSGZZ)
+
 ## Believe Merrill Enrich the Meal
 分析外資的持倉狀態，縮小選股範圍
 目標是波段交易
