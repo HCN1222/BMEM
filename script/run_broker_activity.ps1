@@ -26,7 +26,7 @@ $format = "parquet"
 # 1400 Schroders (港商蘇皇)
 # 1560 Nomura (港商野村)
 $brokers = @(
-    # @{ Name = "MerrillLynch";  TraderId = 1440 },
+    @{ Name = "MerrillLynch";  TraderId = 1440 },
     @{ Name = "MorganStanley"; TraderId = 1470 },
     @{ Name = "GoldmanSachs";  TraderId = 1480 },
     @{ Name = "JPMorgan";      TraderId = 8440 },

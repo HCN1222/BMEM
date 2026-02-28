@@ -1,101 +1,60 @@
 # BMEM
 
-## Reference
-- [Discrete HMM on YT](https://youtu.be/JRsdt05pMoI?si=wjkP7rq9asWZSGZZ)
-- [Blog for HMM Intro.](https://web.ntnu.edu.tw/~algo/HiddenMarkovModel.html)
-- [HMMlearn 官方網站](https://hmmlearn.readthedocs.io/en/latest/)
+**Believe Merrill Enrich the Meal**
+Step1. 利用HMM分析外資(美林)`建倉/持倉/清倉` 狀態，縮小選股範圍
+Step2. 如果順利再利用Gradient Boosted Decision Tree分析多個外資狀態與股價關係
 
-## Believe Merrill Enrich the Meal
-分析外資的持倉狀態，縮小選股範圍
-目標是波段交易
-
-## API
+## Data
+資料使用Finmind API下載
 [Finmind](https://finmindtrade.com/analysis/#/data/api)
 籌碼面資料缺失
 
 ![籌碼面資料缺失](./img/image.png)
 
+### 目前已下載的資料集
+
+時間皆為 2021/02/30 ~ 2026/02/11
+
+1.  `./data/brokers/卷商分點編號`: 此資料夾中的`.parquet`包含十個外資的分點進出資料(每檔股票淨買賣)
+2.  `./data/stocks`: 這裡包含上述分點交易所觸及的所有股票，檔案開頭為股票代碼
+
+
 ## Setup
 1. add your **API KEY** in `.env.example` and rename the file as `.env`
 
-### 設想
-1. 利用HMM (sticky HMM)去分析外資目的(建倉/持倉)
-2. 利用1.分析多加外資
-接著再利用 Gradient Boosted Decision Tree
-
-### Instructions
-
+### Tools for Downloading data
+指令可參考`./script`下面的`.ps1`
 - `download_broker_activity.py`: 抓取卷商分點資料
-```
-python download_broker_activity.py --start 2025-01-01 --end 2025-12-31 --format parquet
-```
+- `download_stock_info.py`: 抓取股票資料
 
-### GPT HMM factor
+## HMM
 
-#### 📌 Sticky HMM for Brokerage Branch Flow Regime Detection
+### States
 
-##### 🎯 Objective
+There are three states: 
+- **Building Position (建倉)**
+- **Liquidating Position (清倉)**
+- **Holding Position (持倉)**
 
-Infer the hidden trading state of a brokerage branch:
+### Observation Vector
 
-* **Building Position (建倉)**
-* **Liquidating Position (清倉)**
-* **Holding Position (持倉)**
+採用 Gaussian Emission
 
-Using a **Sticky Gaussian Hidden Markov Model (SHMM)**.
-
----
-
-### 1️⃣ Hidden States
-
-$
-S_t \in {\text{Building},\ \text{Liquidating},\ \text{Holding}}
-$
-
-Properties:
-
-* States are **persistent** (handled via Sticky HMM)
-* State transitions are governed by transition matrix (A)
+$x_t = [z_t, a_t, s_t, I_t]$
 
 ---
 
-### 2️⃣ Observation Vector (Feature Set)
+1. Normalized Net Buy (Flow Strength) $z_t$
+$z_t = \frac{nb_t}{\text{Total Market Volume}_t}= \frac{buy_t - sell_t}{\text{Total Market Volume}_t}$
 
-At each time step (t), define observation vector:
 
-$
-x_t = [z_t, a_t, s_t, I_t]
-$
 
----
-
-#### 🟢 Core Flow Factors (Required)
-
-##### 1. Net Buy Volume
-
-$
-nb_t = buy_t - sell_t
-$
-
-Represents daily position change.
-
----
-
-##### 2. Normalized Net Buy (Flow Strength)
-
-$
-z_t = \frac{nb_t}{\text{Total Market Volume}_t}
-$
-
-Measures relative influence.
 
 ---
 
 ##### 3. Activity Level
 
-$
-a_t = \frac{|buy_t| + |sell_t|}{\text{Total Market Volume}_t}
-$
+$a_t = \frac{|buy_t| + |sell_t|}{\text{Total Market Volume}_t}$
 
 Distinguishes:
 
@@ -106,9 +65,7 @@ Distinguishes:
 
 ##### 4. Directional Persistence
 
-$
-s_t = \frac{1}{M} \sum_{i=0}^{M-1} \text{sign}(nb_{t-i})
-$
+$s_t = \frac{1}{M} \sum_{i=0}^{M-1} \text{sign}(nb_{t-i})$
 
 Captures sustained buying or selling behavior.
 
@@ -118,9 +75,7 @@ Captures sustained buying or selling behavior.
 
 ##### 5. Cumulative Net Buy (Pseudo Inventory)
 
-$
-I_t = I_{t-1} + nb_t
-$
+$I_t = I_{t-1} + nb_t$
 
 Approximates position accumulation.
 
@@ -128,9 +83,7 @@ Approximates position accumulation.
 
 ##### 6. Inventory Change Rate
 
-$
-\Delta I_t = nb_t
-$
+$\Delta I_t = nb_t$
 
 Captures current position adjustment speed.
 
@@ -138,9 +91,7 @@ Captures current position adjustment speed.
 
 ##### 7. Inventory Acceleration (Optional)
 
-$
-\Delta^2 I_t = nb_t - nb_{t-1}
-$
+$\Delta^2 I_t = nb_t - nb_{t-1}$
 
 Detects early reversal signals.
 
