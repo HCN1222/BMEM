@@ -1,7 +1,9 @@
 # BMEM
 
 ## Reference
-- [Discrete HMM](https://youtu.be/JRsdt05pMoI?si=wjkP7rq9asWZSGZZ)
+- [Discrete HMM on YT](https://youtu.be/JRsdt05pMoI?si=wjkP7rq9asWZSGZZ)
+- [Blog for HMM Intro.](https://web.ntnu.edu.tw/~algo/HiddenMarkovModel.html)
+- [HMMlearn 官方網站](https://hmmlearn.readthedocs.io/en/latest/)
 
 ## Believe Merrill Enrich the Meal
 分析外資的持倉狀態，縮小選股範圍
