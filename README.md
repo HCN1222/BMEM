@@ -37,20 +37,64 @@ There are three states:
 - **Holding Position (持倉)**
 
 ### Observation Vector
+!!!
+**要用股票張數還是用交易金額?**
+- 對每個股票做rolling z_score或用$𝑟_𝑡/𝜎_{60}$
+- 對 $z_t$, $a_t$ 做 winsorize/clip (避免 outlier 影響$\Sigma$)
+
+!!!
 
 採用 Gaussian Emission
 
 $x_t = [z_t, a_t, s_t, I_t]$
 
----
+符號解釋:
+- $buy_t$ / $sell_t$: 第t天買總量/賣總量
+- $V_t$: 第t天股票交易總量
+- $C_t$: 第t天收盤價
 
+
+---
 1. Normalized Net Buy (Flow Strength) $z_t$
-$z_t = \frac{nb_t}{\text{Total Market Volume}_t}= \frac{buy_t - sell_t}{\text{Total Market Volume}_t}$
 
+    $z_t = \frac{nb_t}{V_t}= \frac{buy_t - sell_t}{V_t}$
+    - 正規化是為了要可以多股票一起訓練
 
+2. Logarithmic return $r_t$
 
+    $r_t = ln(\frac{C_t}{C_{t-1}})$
+    - 觀察到有時卷商單純“漲就買、跌就賣”
+    - log貼合 Gaussian Emission
+
+3. Activity level $a_t$
+
+    $a_t = \frac{(|buy_t|+|sell_t|)}{V_t}$
+    - 提供對沖資訊
+
+4. Average Normalized Net Buy (5 days) $\bar{z}_5$
+
+    $\bar{z}_5 = \frac{1}{5} \sum_{t=T-4}^{T} z_t$
+    - 希望利用observation vector 來補足短期記憶(first-order markov model 只根據前一個狀態來轉移)
+
+5. Relative Normalized Net Buy Acceleration
+
+    $\bar{z}_5-\bar{z}_{10}$
+    - 這個與上一個一樣，可以提供短期記憶
 
 ---
+
+### Ablation study
+
+**Not yet tested**
+Flow-Price alignment 與 covariance 交互
+
+1. 不加交互項 + full covariance
+2. 加$sign(𝑟)⋅𝑧$ + diag covariance
+3. 加$sign(𝑟)⋅sign(𝑧)$ + diag covariance
+
+---
+
+## 以下是GPT回覆，留著參考用
 
 ##### 3. Activity Level
 
@@ -70,6 +114,9 @@ $s_t = \frac{1}{M} \sum_{i=0}^{M-1} \text{sign}(nb_{t-i})$
 Captures sustained buying or selling behavior.
 
 ---
+
+
+
 
 #### 🟡 Inventory-Based Factors (Strongly Recommended)
 
