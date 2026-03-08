@@ -55,31 +55,31 @@ $x_t = [z_t, a_t, s_t, I_t]$
 
 
 ---
-1. Normalized Net Buy (Flow Strength) $z_t$
+#### 1. Normalized Net Buy (Flow Strength) $z_t$
 
-    $z_t = \frac{nb_t}{V_t}= \frac{buy_t - sell_t}{V_t}$
-    - 正規化是為了要可以多股票一起訓練
+$$z_t = \frac{nb_t}{V_t}= \frac{buy_t - sell_t}{V_t}$$
+- 正規化是為了要可以多股票一起訓練
 
-2. Logarithmic return $r_t$
+#### 2. Logarithmic return $r_t$
 
-    $r_t = ln(\frac{C_t}{C_{t-1}})$
-    - 觀察到有時卷商單純“漲就買、跌就賣”
-    - log貼合 Gaussian Emission
+$$r_t = ln(\frac{C_t}{C_{t-1}})$$
+- 觀察到有時卷商單純“漲就買、跌就賣”
+- log貼合 Gaussian Emission
 
-3. Activity level $a_t$
+#### 3. Activity level $a_t$
 
-    $a_t = \frac{(|buy_t|+|sell_t|)}{V_t}$
-    - 提供對沖資訊
+$$a_t = \frac{(|buy_t|+|sell_t|)}{V_t}$$
+- 提供對沖資訊
 
-4. Average Normalized Net Buy (5 days) $\bar{z}_5$
+#### 4. Average Normalized Net Buy (5 days) $\bar{z}_5$
 
-    $\bar{z}_5 = \frac{1}{5} \sum_{t=T-4}^{T} z_t$
-    - 希望利用observation vector 來補足短期記憶(first-order markov model 只根據前一個狀態來轉移)
+$$\bar{z}_5 = \frac{1}{5} \sum_{t=T-4}^{T} z_t$$
+- 希望利用observation vector 來補足短期記憶(first-order markov model 只根據前一個狀態來轉移)
 
-5. Relative Normalized Net Buy Acceleration
+#### 5. Directional Persistence (5 days) $s_t$
 
-    $\bar{z}_5-\bar{z}_{10}$
-    - 這個與上一個一樣，可以提供短期記憶
+$$s_t = \frac{1}{5} \sum_{i=t-4}^{t} \text{sign}(nb_{i})$$
+- Captures sustained buying or selling behavior.
 
 ---
 
