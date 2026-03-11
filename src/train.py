@@ -21,6 +21,7 @@ python train_hmm.py \
 import argparse
 import json
 from pathlib import Path
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,49 +40,13 @@ def parse_args():
         description="Train a Gaussian HMM from concatenated multi-sequence observations stored in a .npz file."
     )
 
-    parser.add_argument(
-        "--input_file",
-        type=str,
-        required=True,
-        help="Path to input .npz file."
-    )
-    parser.add_argument(
-        "--outdir",
-        type=str,
-        default="output",
-        help="Name or path of output directory. Default: output"
-    )
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        default=50,
-        help="Maximum number of EM iterations. Default: 50"
-    )
-    parser.add_argument(
-        "--n_states",
-        type=int,
-        required=True,
-        help="Number of hidden states."
-    )
-    parser.add_argument(
-        "--covariance_type",
-        type=str,
-        default="diag",
-        choices=["full", "diag"],
-        help='Covariance type for Gaussian emissions. Recommended default: "diag"'
-    )
-    parser.add_argument(
-        "--tol",
-        type=float,
-        default=1e-3,
-        help="Tolerance for log-likelihood improvement to stop fitting. Recommended default: 1e-3"
-    )
-    parser.add_argument(
-        "--random_seed",
-        type=int,
-        default=42,
-        help="Random seed. Default: 42"
-    )
+    parser.add_argument( "--input_file", type=str, required=True, help="Path to input .npz file." )
+    parser.add_argument( "--outdir", type=str, required=True, help="Name or path of output directory. Default: output" )
+    parser.add_argument( "--iterations", type=int, default=1000, help="Maximum number of EM iterations. Default: 50" )
+    parser.add_argument( "--n_states", type=int, required=True, help="Number of hidden states." )
+    parser.add_argument( "--covariance_type", type=str, default="full", choices=["full", "diag"], help='Covariance type for Gaussian emissions. Default: full')
+    parser.add_argument( "--tol", type=float, default=1e-3, help="Tolerance for log-likelihood improvement to stop fitting. Recommended default: 1e-3" )
+    parser.add_argument( "--random_seed", type=int, default=12, help="Random seed. Default: 12" )
 
     return parser.parse_args()
 
@@ -142,39 +107,25 @@ def load_dataset(npz_path: Path):
     return lengths, observations, names
 
 
-def standardize_observations(observations: np.ndarray):
-    """
-    Standardize observations feature-wise using global mean and std.
-
-    Returns:
-    - standardized observations
-    - feature_mean
-    - feature_std
-    """
-    feature_mean = observations.mean(axis=0)
-    feature_std = observations.std(axis=0)
-
-    # Prevent division by zero for constant features
-    feature_std_safe = np.where(feature_std < 1e-12, 1.0, feature_std)
-    observations_std = (observations - feature_mean) / feature_std_safe
-
-    return observations_std, feature_mean, feature_std_safe
-
-
 def create_output_dir(input_path: Path, outdir_arg: str) -> Path:
     """
-    Create output directory.
-
-    If outdir_arg is a relative path like 'output', it will be created under
-    the input file's parent directory.
+    Create an output directory with a timestamp under the given base path.
+    Example:
+        outdir_arg/result_20260311_142510
     """
-    outdir_path = Path(outdir_arg)
 
-    if not outdir_path.is_absolute():
-        outdir_path = input_path.parent / outdir_path
+    base_path = Path(outdir_arg)
 
-    outdir_path.mkdir(parents=True, exist_ok=True)
-    return outdir_path
+    # Generate timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Create folder name
+    result_dir = base_path / f"result_{timestamp}"
+
+    # Create directory
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    return result_dir
 
 
 def train_model_with_progress(
@@ -194,9 +145,7 @@ def train_model_with_progress(
     - log_likelihood_history
     - converged_iteration (1-based index), or None if not early stopped
     """
-    model = GaussianHMM(
-        n_components=n_states,
-        covariance_type=covariance_type,
+    model = GaussianHMM( n_components=n_states, covariance_type=covariance_type,
         n_iter=1,              # one EM step per outer loop
         tol=tol,
         init_params="stmc",    # initialize only once
@@ -335,8 +284,7 @@ def main():
     outdir = create_output_dir(input_path, args.outdir)
 
     lengths, observations, names = load_dataset(input_path)
-    observations_std, feature_mean, feature_std = standardize_observations(observations)
-    n_features = observations_std.shape[1]
+    n_features = observations.shape[1]
 
     print("Dataset loaded successfully.")
     print(f"Input file: {input_path}")
@@ -368,9 +316,7 @@ def main():
         args=args,
         lengths=lengths,
         decoded_states=decoded_states,
-        posterior_probs=posterior_probs,
-        feature_mean=feature_mean,
-        feature_std=feature_std
+        posterior_probs=posterior_probs
     )
 
     save_loglik_plot(outdir, log_likelihood_history)
