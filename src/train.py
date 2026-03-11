@@ -5,7 +5,7 @@ Train a Gaussian HMM using hmmlearn from a .npz dataset.
 Expected .npz keys:
 - lengths: 1D array of ints, shape (n_sequences,)
 - observations: 2D array of floats, shape (total_timesteps, n_features)
-- names: 1D array of strings, shape (n_sequences,)
+- feature_names: 1D array of strings
 
 Example usage:
 python train_hmm.py \
@@ -67,18 +67,18 @@ def load_dataset(npz_path: Path):
     Expected keys:
     - lengths
     - observations
-    - names
+    - feature_names
     """
     data = np.load(npz_path, allow_pickle=True)
 
-    required_keys = ["lengths", "observations", "names"]
+    required_keys = ["lengths", "observations", "feature_names"]
     for key in required_keys:
         if key not in data:
             raise KeyError(f"Missing key '{key}' in input .npz file.")
 
     lengths = np.asarray(data["lengths"], dtype=int)
     observations = np.asarray(data["observations"], dtype=float)
-    names = np.asarray(data["names"]).astype(str)
+    feature_names = np.asarray(data["feature_names"]).astype(str)
 
     if lengths.ndim != 1:
         raise ValueError(f"'lengths' must be 1D, got shape {lengths.shape}")
@@ -88,23 +88,18 @@ def load_dataset(npz_path: Path):
             f"'observations' must be 2D with shape (total_timesteps, n_features), got shape {observations.shape}"
         )
 
-    if names.ndim != 1:
-        raise ValueError(f"'names' must be 1D, got shape {names.shape}")
+    if feature_names.ndim != 1:
+        raise ValueError(f"'feature_names' must be 1D, got shape {feature_names.shape}")
 
-    if len(lengths) != len(names):
+    if lengths.sum() != len(observations):
         raise ValueError(
-            f"Number of sequences mismatch: len(lengths)={len(lengths)} but len(names)={len(names)}"
+            f"Number of sequences mismatch: sum(lengths)={sum(lengths)} but len(observations)={len(observations)}"
         )
 
     if np.any(lengths <= 0):
         raise ValueError("All sequence lengths must be positive integers.")
 
-    if int(lengths.sum()) != observations.shape[0]:
-        raise ValueError(
-            f"Sum of lengths ({lengths.sum()}) does not match number of observation rows ({observations.shape[0]})."
-        )
-
-    return lengths, observations, names
+    return lengths, observations, feature_names
 
 
 def create_output_dir(input_path: Path, outdir_arg: str) -> Path:
@@ -209,7 +204,7 @@ def save_loglik_plot(outdir: Path, log_likelihood_history):
 def save_results(
     outdir: Path,
     model: GaussianHMM,
-    names: np.ndarray,
+    feature_names: np.ndarray,
     log_likelihood_history,
     args,
     lengths: np.ndarray,
@@ -227,7 +222,6 @@ def save_results(
         transmat=model.transmat_,
         means=model.means_,
         covars=model.covars_,
-        names=names,
         lengths=lengths,
         log_likelihood_history=np.asarray(log_likelihood_history, dtype=float),
         decoded_states=decoded_states,
@@ -244,29 +238,23 @@ def save_results(
         "covariance_type": args.covariance_type,
         "tol": float(args.tol),
         "random_seed": int(args.random_seed),
-        "n_sequences": int(len(names)),
         "n_total_timesteps": int(lengths.sum()),
+        "feature_names": feature_names,
         "n_features": int(model.means_.shape[1]),
         "trained_iterations": int(len(log_likelihood_history)),
-        "final_log_likelihood": float(log_likelihood_history[-1]) if log_likelihood_history else None,
-        "standardized_input": True
+        "final_log_likelihood": float(log_likelihood_history[-1]) if log_likelihood_history else None
     }
 
     with open(outdir / "metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
 
-def print_summary(names: np.ndarray, model: GaussianHMM):
+def print_summary(feature_names: np.ndarray, model: GaussianHMM):
     """
-    Print sequence names and each learned Gaussian emission distribution.
-    For a Gaussian HMM, the emission density distribution of each hidden state
-    is defined by its mean vector and covariance matrix.
+    Print feature names and each learned Gaussian emission distribution.
     """
-    print("\nLoaded sequence names:")
-    for i, name in enumerate(names):
-        print(f"  [{i}] {name}")
-
     print("\nLearned Gaussian emission distributions by hidden state:")
+    print("features:", feature_names)
     for state_idx in range(model.n_components):
         print(f"\nState {state_idx}")
         print("Mean:")
@@ -283,20 +271,19 @@ def main():
 
     outdir = create_output_dir(input_path, args.outdir)
 
-    lengths, observations, names = load_dataset(input_path)
+    lengths, observations, feature_names = load_dataset(input_path)
     n_features = observations.shape[1]
 
     print("Dataset loaded successfully.")
     print(f"Input file: {input_path}")
     print(f"Output directory: {outdir}")
-    print(f"Number of sequences: {len(names)}")
     print(f"Total timesteps: {lengths.sum()}")
     print(f"Observation shape: {observations.shape}")
-    print(f"Inferred number of observation features: {n_features}")
+    print("features:", feature_names)
     print("Input observations will be standardized before training.")
 
     model, log_likelihood_history, converged_iteration = train_model_with_progress(
-        observations=observations_std,
+        observations=observations,
         lengths=lengths,
         n_states=args.n_states,
         covariance_type=args.covariance_type,
@@ -305,13 +292,13 @@ def main():
         random_seed=args.random_seed
     )
 
-    decoded_states = model.predict(observations_std, lengths=lengths)
-    posterior_probs = model.predict_proba(observations_std, lengths=lengths)
+    decoded_states = model.predict(observations, lengths=lengths)
+    posterior_probs = model.predict_proba(observations, lengths=lengths)
 
     save_results(
         outdir=outdir,
         model=model,
-        names=names,
+        feature_names=feature_names,
         log_likelihood_history=log_likelihood_history,
         args=args,
         lengths=lengths,
@@ -321,7 +308,7 @@ def main():
 
     save_loglik_plot(outdir, log_likelihood_history)
 
-    print_summary(names, model)
+    print_summary(feature_names, model)
 
     print("\nTraining completed.")
     print(f"Total training iterations run: {len(log_likelihood_history)}")
