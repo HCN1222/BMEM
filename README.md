@@ -58,20 +58,22 @@ $x_t = [z_t, a_t, s_t, I_t]$
 #### 1. Normalized Net Buy (Flow Strength) $z_t$
 
 $$z_t = \frac{nb_t}{V_t}= \frac{buy_t - sell_t}{V_t}$$
-- 正規化是為了要可以多股票一起訓練
+- 橫截面正規化: 為了要可以多股票一起訓練
+- 時序面正規化: 做20日rolling Z-score
 
 #### 2. Logarithmic return $r_t$
 
-$$r_t = ln(\frac{C_t}{C_{t-1}})$$
+$$r_t = \frac{C_t}{C_{t-1}}$$
 - 觀察到有時卷商單純“漲就買、跌就賣”
-- log貼合 Gaussian Emission
+- 時序面正規化: 做20日rolling Z-score
 
 #### 3. Activity level $a_t$
 
 $$a_t = \frac{(|buy_t|+|sell_t|)}{V_t}$$
 - 提供對沖資訊
+- 時序面正規化: 做20日rolling Z-score
 
-#### 4. Average Normalized Net Buy (5 days) $\bar{z}_5$
+#### (Ver. 1 先不做) 4. Average Normalized Net Buy (5 days) $\bar{z}_5$
 
 $$\bar{z}_5 = \frac{1}{5} \sum_{t=T-4}^{T} z_t$$
 - 希望利用observation vector 來補足短期記憶(first-order markov model 只根據前一個狀態來轉移)
@@ -92,7 +94,10 @@ Flow-Price alignment 與 covariance 交互
 2. 加$sign(𝑟)⋅𝑧$ + diag covariance
 3. 加$sign(𝑟)⋅sign(𝑧)$ + diag covariance
 
----
+
+
+# 下面是筆記
+
 
 ## 以下是GPT回覆，留著參考用
 
