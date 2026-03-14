@@ -14,7 +14,7 @@ def time_series_normalize(series, window=20):
     rolling_mean = series.rolling(window=window, min_periods=window).mean()
     rolling_std = series.rolling(window=window, min_periods=window).std()
     
-    # 避免 std 為 0 導致除以零的錯誤
+    # Replace 0 std with NaN to avoid division by zero
     z_score = (series - rolling_mean) / rolling_std.replace(0, np.nan)
     
     return z_score
@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--broker_data_path', type=str, required=True, help="Path to the broker data .parquet file")
     parser.add_argument('--stock_info_dir', type=str, required=True, help="Path to the directory containing stock .parquet files")
     parser.add_argument('--output_dir', type=str, default='./data/preprocessed_data/', help="Directory to save the output files")
+    parser.add_argument('--split_year', type=int, default=2025, help="Year to split train and eval sets at the first >7 day break.")
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
@@ -45,13 +46,10 @@ def main():
     # 2. Preprocess Stock Data First (Market-Level Processing)
     stock_df = stock_df.sort_values(by=['stock_id', 'date'])
     
-    # 過濾從未達到 10,000,000 交易量的股票
     max_volume = stock_df.groupby('stock_id')['Trading_Volume'].max()
     valid_stocks = max_volume[max_volume >= 10000000].index
     stock_df = stock_df[stock_df['stock_id'].isin(valid_stocks)]
-    print(f"Volume Filter: Kept {len(valid_stocks)} out of {len(max_volume)} stocks.")
     
-    # 移除包含 0.0 或 NaN 收盤價的受污染股票
     contaminated_stocks = stock_df[stock_df['close'].isin([0, np.nan])]['stock_id'].unique()
     if len(contaminated_stocks) > 0:
         print(f"WARNING: Dropping {len(contaminated_stocks)} stocks entirely due to 0.0 or NaN close prices.")
@@ -61,25 +59,39 @@ def main():
     stock_df['r_t_raw'] = stock_df.groupby('stock_id')['close'].transform(lambda x: np.log(x / x.shift(1)))
     stock_df['r_t'] = stock_df.groupby('stock_id')['r_t_raw'].transform(lambda x: time_series_normalize(x, window=20))
     
+    # --- NEW: Identify Split Dates per Stock ---
+    print(f"Identifying Train/Eval split dates based on the first >7 day break in or after {args.split_year}...")
+    market_days = stock_df[['stock_id', 'date']].drop_duplicates()
+    market_days['date_diff'] = market_days.groupby('stock_id')['date'].diff().dt.days
+    
+    # Find all breaks > 7 days occurring in or after the target split year
+    long_breaks = market_days[(market_days['date_diff'] > 7) & (market_days['date'].dt.year >= args.split_year)]
+    # The first break is our watershed date for that stock
+    split_dates = long_breaks.groupby('stock_id')['date'].min()
+    
     stock_subset = stock_df[['date', 'stock_id', 'Trading_Volume', 'r_t']]
     
-    # 3. 建立完整的時間序列骨架 (Skeleton) 並合併資料
+    # 3. Build Skeleton & Merge
     print("Aligning broker data to continuous market trading days...")
     trader_stock_pairs = broker_df[['stock_id', 'securities_trader_id']].drop_duplicates()
     skeleton_df = pd.merge(trader_stock_pairs, stock_subset, on='stock_id', how='inner')
     
     df = pd.merge(skeleton_df, broker_df, on=['date', 'stock_id', 'securities_trader_id'], how='left')
     
-    # 填補無交易日的買賣數值為 0
     df['buy'] = df['buy'].fillna(0)
     df['sell'] = df['sell'].fillna(0)
     df['net_buy'] = df['net_buy'].fillna(0)
     
+    # Map the split_date to the main dataframe
+    df = df.merge(split_dates.rename('split_date'), on='stock_id', how='left')
+    # If a stock has NO long breaks after the split year, assign to a far future date so it all goes to Train
+    df['split_date'] = df['split_date'].fillna(pd.Timestamp('2099-12-31'))
+    # Label Evaluation rows
+    df['is_eval'] = df['date'] >= df['split_date']
+    
     # 4. Define Sequences & Calculate Features
     print("Calculating observation vectors...")
     df = df.sort_values(by=['stock_id', 'securities_trader_id', 'date'])
-    
-    # [修正核心] 先以 (卷商, 股票) 為群組計算 Rolling 特徵，避免被長假打斷
     grouped_trader = df.groupby(['stock_id', 'securities_trader_id'])
     
     # Feature 1: Normalized Net Buy (z_t)
@@ -93,35 +105,44 @@ def main():
     # Feature 4: Directional Persistence (s_t)
     df['s_t'] = grouped_trader['net_buy'].transform(lambda x: np.sign(x).rolling(window=5, min_periods=5).mean())
     
-    # 計算時間差與設定 HMM sequence_id
+    # Calculate sequences
     df['date_diff'] = grouped_trader['date'].diff().dt.days
     df['new_seq_flag'] = df['date_diff'].isnull() | (df['date_diff'] > 7)
     df['sequence_id'] = df['new_seq_flag'].cumsum()
     
-    # 5. Clean up for hmmlearn
+    # 5. Clean up & Split for hmmlearn
     feature_cols = ['z_t', 'r_t', 'a_t', 's_t']
     
-    # 刪除含有 NaN 的列 (這會乾淨地移除每個卷商-股票組合最開始那 19 天無法計算完整 Rolling 的資料)
+    # Drop rows with NaN (removes the initial 19 days of rolling window calculations)
     cleaned_df = df.dropna(subset=feature_cols).copy()
     
-    lengths = cleaned_df.groupby('sequence_id').size().values
-    X = cleaned_df[feature_cols].values
+    # Split the dataset
+    train_df = cleaned_df[~cleaned_df['is_eval']].copy()
+    eval_df = cleaned_df[cleaned_df['is_eval']].copy()
     
-    print(f"Final Data Shape: {X.shape[0]} observations across {len(lengths)} unique continuous sequences.")
+    # Extract lengths and X matrices
+    lengths_train = train_df.groupby('sequence_id').size().values
+    X_train = train_df[feature_cols].values
+    
+    lengths_eval = eval_df.groupby('sequence_id').size().values
+    X_eval = eval_df[feature_cols].values
+    
+    print(f"--- Data Split Summary ---")
+    print(f"Train Set: {X_train.shape[0]} observations across {len(lengths_train)} continuous sequences.")
+    print(f"Eval Set:  {X_eval.shape[0]} observations across {len(lengths_eval)} continuous sequences.")
     
     # 6. Save outputs
-    x_path = os.path.join(args.output_dir, 'hmm_X.npy')
-    lengths_path = os.path.join(args.output_dir, 'hmm_lengths.npy')
-    df_path = os.path.join(args.output_dir, 'final_vectors.parquet')
+    np.save(os.path.join(args.output_dir, 'hmm_X_train.npy'), X_train)
+    np.save(os.path.join(args.output_dir, 'hmm_lengths_train.npy'), lengths_train)
     
-    np.save(x_path, X)
-    np.save(lengths_path, lengths)
+    np.save(os.path.join(args.output_dir, 'hmm_X_eval.npy'), X_eval)
+    np.save(os.path.join(args.output_dir, 'hmm_lengths_eval.npy'), lengths_eval)
     
-    cleaned_df[['date', 'stock_id', 'securities_trader_id', 'sequence_id'] + feature_cols].to_parquet(df_path, index=False)
+    # Save the dataframe for debugging/tracing
+    out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'is_eval'] + feature_cols
+    cleaned_df[out_cols].to_parquet(os.path.join(args.output_dir, 'final_vectors.parquet'), index=False)
     
-    print(f"Saved hmm_X.npy to {x_path}")
-    print(f"Saved hmm_lengths.npy to {lengths_path}")
-    print("Done!")
+    print("Done! All matrices saved successfully.")
 
 if __name__ == '__main__':
     main()
