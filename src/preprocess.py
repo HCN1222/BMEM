@@ -132,17 +132,35 @@ def main():
     print(f"Eval Set:  {X_eval.shape[0]} observations across {len(lengths_eval)} continuous sequences.")
     
     # 6. Save outputs
-    np.save(os.path.join(args.output_dir, 'hmm_X_train.npy'), X_train)
-    np.save(os.path.join(args.output_dir, 'hmm_lengths_train.npy'), lengths_train)
+    print("Packing data into .npz archives...")
     
-    np.save(os.path.join(args.output_dir, 'hmm_X_eval.npy'), X_eval)
-    np.save(os.path.join(args.output_dir, 'hmm_lengths_eval.npy'), lengths_eval)
+    train_path = os.path.join(args.output_dir, 'hmm_data_train.npz')
+    eval_path = os.path.join(args.output_dir, 'hmm_data_eval.npz')
+    parquet_path = os.path.join(args.output_dir, 'final_vectors.parquet')
+    
+    # Save Train Set
+    np.savez(
+        train_path, 
+        lengths=lengths_train, 
+        observations=X_train, 
+        feature_names=feature_cols
+    )
+    
+    # Save Eval Set
+    np.savez(
+        eval_path, 
+        lengths=lengths_eval, 
+        observations=X_eval, 
+        feature_names=feature_cols
+    )
     
     # Save the dataframe for debugging/tracing
     out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'is_eval'] + feature_cols
-    cleaned_df[out_cols].to_parquet(os.path.join(args.output_dir, 'final_vectors.parquet'), index=False)
+    cleaned_df[out_cols].to_parquet(parquet_path, index=False)
     
-    print("Done! All matrices saved successfully.")
+    print(f"Saved training data to {train_path}")
+    print(f"Saved evaluation data to {eval_path}")
+    print("Done! All matrices packed and saved successfully.")
 
 if __name__ == '__main__':
     main()
