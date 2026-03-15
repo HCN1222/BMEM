@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Train a Gaussian HMM using hmmlearn from a .npz dataset with K-Means initialization.
+Assumes input observations are already preprocessed/standardized.
 
 Expected .npz keys:
 - lengths: 1D array of ints, shape (n_sequences,)
@@ -17,7 +18,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from hmmlearn.hmm import GaussianHMM
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 
@@ -28,7 +28,7 @@ def parse_args():
 
     parser.add_argument( "--input_file", type=str, required=True, help="Path to input .npz file." )
     parser.add_argument( "--outdir", type=str, required=True, help="Name or path of output directory. Default: output" )
-    parser.add_argument( "--iterations", type=int, default=1000, help="Maximum number of EM iterations. Default: 1000" )
+    parser.add_argument( "--iterations", type=int, default=100, help="Maximum number of EM iterations. Default: 100" )
     parser.add_argument( "--n_states", type=int, required=True, help="Number of hidden states." )
     parser.add_argument( "--covariance_type", type=str, default="full", choices=["full", "diag"], help='Covariance type for Gaussian emissions. Default: full')
     parser.add_argument( "--tol", type=float, default=1e-3, help="Tolerance for log-likelihood improvement to stop fitting. Recommended default: 1e-3" )
@@ -79,9 +79,6 @@ def create_output_dir(input_path: Path, outdir_arg: str) -> Path:
 
 
 def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covariance_type: str, random_seed: int):
-    """
-    Use K-Means to find initial cluster centers and covariances.
-    """
     print("Running K-Means for parameter initialization...")
     kmeans = KMeans(n_clusters=n_states, random_state=random_seed, n_init="auto")
     labels = kmeans.fit_predict(observations)
@@ -89,13 +86,11 @@ def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covarian
     n_features = observations.shape[1]
     means = kmeans.cluster_centers_
     
-    # Initialize Covariances based on K-means clusters
     if covariance_type == "full":
         covars = np.zeros((n_states, n_features, n_features))
         for i in range(n_states):
             obs_i = observations[labels == i]
             if len(obs_i) > 1:
-                # Add a tiny value to diagonal to prevent singular matrix error
                 covars[i] = np.cov(obs_i, rowvar=False) + np.eye(n_features) * 1e-6
             else:
                 covars[i] = np.eye(n_features)
@@ -108,7 +103,6 @@ def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covarian
             else:
                 covars[i] = np.ones(n_features)
 
-    # Initialize Uniform Transition & Start Probabilities
     startprob = np.full(n_states, 1.0 / n_states)
     transmat = np.full((n_states, n_states), 1.0 / n_states)
 
@@ -124,24 +118,21 @@ def train_model_with_progress(
     tol: float,
     random_seed: int
 ):
-    # 1. Get K-means initial parameters
     startprob, transmat, means, covars = initialize_hmm_with_kmeans(
         observations, n_states, covariance_type, random_seed
     )
 
-    # 2. Setup HMM Model
     model = GaussianHMM( 
         n_components=n_states, 
         covariance_type=covariance_type,
         n_iter=1,              
         tol=tol,
-        init_params="",        # CRITICAL: Empty string prevents hmmlearn from overwriting our parameters
-        params="stmc",         # Allow updating Start, Transmat, Means, Covariances
+        init_params="",        
+        params="stmc",         
         random_state=random_seed,
         verbose=False
     )
 
-    # 3. Inject K-means parameters
     model.startprob_ = startprob
     model.transmat_ = transmat
     model.means_ = means
@@ -198,9 +189,7 @@ def save_results(
     args,
     lengths: np.ndarray,
     decoded_states: np.ndarray,
-    posterior_probs: np.ndarray,
-    feature_mean: np.ndarray,
-    feature_std: np.ndarray
+    posterior_probs: np.ndarray
 ):
     np.savez(
         outdir / "trained_hmm_params.npz",
@@ -211,9 +200,7 @@ def save_results(
         lengths=lengths,
         log_likelihood_history=np.asarray(log_likelihood_history, dtype=float),
         decoded_states=decoded_states,
-        posterior_probabilities=posterior_probs,
-        standardization_mean=feature_mean,
-        standardization_std=feature_std
+        posterior_probabilities=posterior_probs
     )
 
     metadata = {
@@ -254,22 +241,14 @@ def main():
 
     outdir = create_output_dir(input_path, args.outdir)
 
-    lengths, raw_observations, feature_names = load_dataset(input_path)
-    n_features = raw_observations.shape[1]
+    lengths, observations, feature_names = load_dataset(input_path)
 
     print("Dataset loaded successfully.")
     print(f"Input file: {input_path}")
     print(f"Output directory: {outdir}")
     print(f"Total timesteps: {lengths.sum()}")
-    print(f"Observation shape: {raw_observations.shape}")
+    print(f"Observation shape: {observations.shape}")
     print("features:", feature_names)
-    
-    # Added Standardization Logic
-    print("Standardizing observations before training...")
-    scaler = StandardScaler()
-    observations = scaler.fit_transform(raw_observations)
-    feature_mean = scaler.mean_
-    feature_std = scaler.scale_
 
     model, log_likelihood_history, converged_iteration = train_model_with_progress(
         observations=observations,
@@ -292,9 +271,7 @@ def main():
         args=args,
         lengths=lengths,
         decoded_states=decoded_states,
-        posterior_probs=posterior_probs,
-        feature_mean=feature_mean,
-        feature_std=feature_std
+        posterior_probs=posterior_probs
     )
 
     save_loglik_plot(outdir, log_likelihood_history)

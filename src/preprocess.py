@@ -62,7 +62,7 @@ def main():
     if args.disable_standardize:
         stock_df['r_t'] = stock_df['r_t_raw']
     else:
-        stock_df['r_t'] = stock_df.groupby('stock_id')['r_t_raw'].transform(lambda x: time_series_normalize(x, window=20))
+        stock_df['r_t'] = stock_df.groupby('stock_id')['r_t_raw'].transform(lambda x: time_series_normalize(x, window=60))
     
     # --- Identify Train/Eval split dates ---
     print(f"Identifying Train/Eval split dates based on the first >7 day break in or after {args.split_year}...")
@@ -94,16 +94,21 @@ def main():
     df = df.sort_values(by=['stock_id', 'securities_trader_id', 'date'])
     grouped_trader = df.groupby(['stock_id', 'securities_trader_id'])
     
-    # Feature 1 (z_t) & Feature 3 (a_t)
+    # Feature 1 (z_t), Feature 3 (a_t) & Feature 5 (m_t)
     df['z_t_raw'] = df['net_buy'] / df['Trading_Volume']
     df['a_t_raw'] = (df['buy'].abs() + df['sell'].abs()) / df['Trading_Volume']
+    
+    # [NEW] Feature 5: 近 5 日買賣超平均 (m_t_raw)
+    df['m_t_raw'] = grouped_trader['net_buy'].transform(lambda x: x.rolling(window=5, min_periods=5).mean())
     
     if args.disable_standardize:
         df['z_t'] = df['z_t_raw']
         df['a_t'] = df['a_t_raw']
+        df['m_t'] = df['m_t_raw']
     else:
-        df['z_t'] = grouped_trader['z_t_raw'].transform(lambda x: time_series_normalize(x, window=20))
-        df['a_t'] = grouped_trader['a_t_raw'].transform(lambda x: time_series_normalize(x, window=20))
+        df['z_t'] = grouped_trader['z_t_raw'].transform(lambda x: time_series_normalize(x, window=60))
+        df['a_t'] = grouped_trader['a_t_raw'].transform(lambda x: time_series_normalize(x, window=60))
+        df['m_t'] = grouped_trader['m_t_raw'].transform(lambda x: time_series_normalize(x, window=60))
     
     # Feature 4: Directional Persistence (s_t) - 永遠使用 5 日 Rolling
     df['s_t'] = grouped_trader['net_buy'].transform(lambda x: np.sign(x).rolling(window=5, min_periods=5).mean())
@@ -114,7 +119,8 @@ def main():
     df['sequence_id'] = df['new_seq_flag'].cumsum()
     
     # 5. Clean up & Split for hmmlearn
-    feature_cols = ['z_t', 'r_t', 'a_t', 's_t']
+    # 加入新的特徵 'm_t'
+    feature_cols = ['z_t', 'r_t', 'a_t', 's_t', 'm_t']
     
     # Drop rows with NaN (自動根據特徵需求裁切掉無法計算的前導天數)
     cleaned_df = df.dropna(subset=feature_cols).copy()
@@ -130,6 +136,7 @@ def main():
     
     print(f"--- Data Split Summary ---")
     print(f"Standardization: {'DISABLED' if args.disable_standardize else 'ENABLED (20-day Z-score)'}")
+    print(f"Features: {feature_cols}")
     print(f"Train Set: {X_train.shape[0]} observations across {len(lengths_train)} continuous sequences.")
     print(f"Eval Set:  {X_eval.shape[0]} observations across {len(lengths_eval)} continuous sequences.")
     
@@ -139,16 +146,14 @@ def main():
     train_npz_path = os.path.join(args.output_dir, 'hmm_data_train.npz')
     eval_npz_path = os.path.join(args.output_dir, 'hmm_data_eval.npz')
     
-    # 分開定義 Train 和 Eval 的 Parquet 路徑
     train_parquet_path = os.path.join(args.output_dir, 'final_vectors_train.parquet')
     eval_parquet_path = os.path.join(args.output_dir, 'final_vectors_eval.parquet')
     
     np.savez(train_npz_path, lengths=lengths_train, observations=X_train, feature_names=feature_cols)
     np.savez(eval_npz_path, lengths=lengths_eval, observations=X_eval, feature_names=feature_cols)
     
-    out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'is_eval'] + feature_cols
+    out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'net_buy'] + feature_cols
     
-    # 分別儲存 Train 和 Eval 的 DataFrame
     train_df[out_cols].to_parquet(train_parquet_path, index=False)
     eval_df[out_cols].to_parquet(eval_parquet_path, index=False)
     
