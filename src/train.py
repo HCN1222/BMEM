@@ -1,21 +1,11 @@
 #!/usr/bin/env python3
 """
-Train a Gaussian HMM using hmmlearn from a .npz dataset.
+Train a Gaussian HMM using hmmlearn from a .npz dataset with K-Means initialization.
 
 Expected .npz keys:
 - lengths: 1D array of ints, shape (n_sequences,)
 - observations: 2D array of floats, shape (total_timesteps, n_features)
 - feature_names: 1D array of strings
-
-Example usage:
-python train_hmm.py \
-    --input_file /path/to/data.npz \
-    --outdir output \
-    --iterations 50 \
-    --n_states 3 \
-    --covariance_type diag \
-    --tol 1e-3 \
-    --random_seed 42
 """
 
 import argparse
@@ -26,23 +16,19 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 from hmmlearn.hmm import GaussianHMM
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 
 def parse_args():
-    """
-    Parse command-line arguments.
-
-    Common naming convention:
-    - parse_args() returns an argparse.Namespace named 'args'
-    """
     parser = argparse.ArgumentParser(
         description="Train a Gaussian HMM from concatenated multi-sequence observations stored in a .npz file."
     )
 
     parser.add_argument( "--input_file", type=str, required=True, help="Path to input .npz file." )
     parser.add_argument( "--outdir", type=str, required=True, help="Name or path of output directory. Default: output" )
-    parser.add_argument( "--iterations", type=int, default=1000, help="Maximum number of EM iterations. Default: 50" )
+    parser.add_argument( "--iterations", type=int, default=1000, help="Maximum number of EM iterations. Default: 1000" )
     parser.add_argument( "--n_states", type=int, required=True, help="Number of hidden states." )
     parser.add_argument( "--covariance_type", type=str, default="full", choices=["full", "diag"], help='Covariance type for Gaussian emissions. Default: full')
     parser.add_argument( "--tol", type=float, default=1e-3, help="Tolerance for log-likelihood improvement to stop fitting. Recommended default: 1e-3" )
@@ -52,23 +38,13 @@ def parse_args():
 
 
 def validate_input_file(input_path: Path):
-    """Check that the input file exists and has .npz suffix."""
     if not input_path.exists():
         raise FileNotFoundError(f"Input file does not exist: {input_path}")
-
     if input_path.suffix.lower() != ".npz":
         raise ValueError(f"Input file must be a .npz file, got: {input_path.suffix}")
 
 
 def load_dataset(npz_path: Path):
-    """
-    Load dataset from .npz file.
-
-    Expected keys:
-    - lengths
-    - observations
-    - feature_names
-    """
     data = np.load(npz_path, allow_pickle=True)
 
     required_keys = ["lengths", "observations", "feature_names"]
@@ -82,20 +58,12 @@ def load_dataset(npz_path: Path):
 
     if lengths.ndim != 1:
         raise ValueError(f"'lengths' must be 1D, got shape {lengths.shape}")
-
     if observations.ndim != 2:
-        raise ValueError(
-            f"'observations' must be 2D with shape (total_timesteps, n_features), got shape {observations.shape}"
-        )
-
+        raise ValueError(f"'observations' must be 2D with shape (total_timesteps, n_features), got shape {observations.shape}")
     if feature_names.ndim != 1:
         raise ValueError(f"'feature_names' must be 1D, got shape {feature_names.shape}")
-
     if lengths.sum() != len(observations):
-        raise ValueError(
-            f"Number of sequences mismatch: sum(lengths)={sum(lengths)} but len(observations)={len(observations)}"
-        )
-
+        raise ValueError(f"Number of sequences mismatch: sum(lengths)={sum(lengths)} but len(observations)={len(observations)}")
     if np.any(lengths <= 0):
         raise ValueError("All sequence lengths must be positive integers.")
 
@@ -103,24 +71,48 @@ def load_dataset(npz_path: Path):
 
 
 def create_output_dir(input_path: Path, outdir_arg: str) -> Path:
-    """
-    Create an output directory with a timestamp under the given base path.
-    Example:
-        outdir_arg/result_20260311_142510
-    """
-
     base_path = Path(outdir_arg)
-
-    # Generate timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Create folder name
     result_dir = base_path / f"result_{timestamp}"
-
-    # Create directory
     result_dir.mkdir(parents=True, exist_ok=True)
-
     return result_dir
+
+
+def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covariance_type: str, random_seed: int):
+    """
+    Use K-Means to find initial cluster centers and covariances.
+    """
+    print("Running K-Means for parameter initialization...")
+    kmeans = KMeans(n_clusters=n_states, random_state=random_seed, n_init="auto")
+    labels = kmeans.fit_predict(observations)
+    
+    n_features = observations.shape[1]
+    means = kmeans.cluster_centers_
+    
+    # Initialize Covariances based on K-means clusters
+    if covariance_type == "full":
+        covars = np.zeros((n_states, n_features, n_features))
+        for i in range(n_states):
+            obs_i = observations[labels == i]
+            if len(obs_i) > 1:
+                # Add a tiny value to diagonal to prevent singular matrix error
+                covars[i] = np.cov(obs_i, rowvar=False) + np.eye(n_features) * 1e-6
+            else:
+                covars[i] = np.eye(n_features)
+    elif covariance_type == "diag":
+        covars = np.zeros((n_states, n_features))
+        for i in range(n_states):
+            obs_i = observations[labels == i]
+            if len(obs_i) > 1:
+                covars[i] = np.var(obs_i, axis=0) + 1e-6
+            else:
+                covars[i] = np.ones(n_features)
+
+    # Initialize Uniform Transition & Start Probabilities
+    startprob = np.full(n_states, 1.0 / n_states)
+    transmat = np.full((n_states, n_states), 1.0 / n_states)
+
+    return startprob, transmat, means, covars
 
 
 def train_model_with_progress(
@@ -132,35 +124,36 @@ def train_model_with_progress(
     tol: float,
     random_seed: int
 ):
-    """
-    Train GaussianHMM one EM step at a time so tqdm can display progress.
+    # 1. Get K-means initial parameters
+    startprob, transmat, means, covars = initialize_hmm_with_kmeans(
+        observations, n_states, covariance_type, random_seed
+    )
 
-    Returns:
-    - model
-    - log_likelihood_history
-    - converged_iteration (1-based index), or None if not early stopped
-    """
-    model = GaussianHMM( n_components=n_states, covariance_type=covariance_type,
-        n_iter=1,              # one EM step per outer loop
+    # 2. Setup HMM Model
+    model = GaussianHMM( 
+        n_components=n_states, 
+        covariance_type=covariance_type,
+        n_iter=1,              
         tol=tol,
-        init_params="stmc",    # initialize only once
-        params="stmc",
+        init_params="",        # CRITICAL: Empty string prevents hmmlearn from overwriting our parameters
+        params="stmc",         # Allow updating Start, Transmat, Means, Covariances
         random_state=random_seed,
         verbose=False
     )
 
+    # 3. Inject K-means parameters
+    model.startprob_ = startprob
+    model.transmat_ = transmat
+    model.means_ = means
+    model.covars_ = covars
+
     log_likelihood_history = []
     converged_iteration = None
-
     progress_bar = tqdm(range(max_iterations), desc="Training HMM", unit="iter")
-
     previous_loglik = None
 
     for iteration_idx in progress_bar:
         model.fit(observations, lengths=lengths)
-
-        # After the first fit, prevent reinitialization
-        model.init_params = ""
 
         current_loglik = model.score(observations, lengths=lengths)
         log_likelihood_history.append(float(current_loglik))
@@ -184,12 +177,8 @@ def train_model_with_progress(
 
 
 def save_loglik_plot(outdir: Path, log_likelihood_history):
-    """
-    Save log-likelihood curve after training.
-    """
     if not log_likelihood_history:
         return
-
     plt.figure(figsize=(8, 5))
     plt.plot(range(1, len(log_likelihood_history) + 1), log_likelihood_history, marker="o")
     plt.xlabel("Iteration")
@@ -213,9 +202,6 @@ def save_results(
     feature_mean: np.ndarray,
     feature_std: np.ndarray
 ):
-    """
-    Save trained parameters and metadata.
-    """
     np.savez(
         outdir / "trained_hmm_params.npz",
         startprob=model.startprob_,
@@ -239,7 +225,7 @@ def save_results(
         "tol": float(args.tol),
         "random_seed": int(args.random_seed),
         "n_total_timesteps": int(lengths.sum()),
-        "feature_names": feature_names,
+        "feature_names": feature_names.tolist(),
         "n_features": int(model.means_.shape[1]),
         "trained_iterations": int(len(log_likelihood_history)),
         "final_log_likelihood": float(log_likelihood_history[-1]) if log_likelihood_history else None
@@ -250,9 +236,6 @@ def save_results(
 
 
 def print_summary(feature_names: np.ndarray, model: GaussianHMM):
-    """
-    Print feature names and each learned Gaussian emission distribution.
-    """
     print("\nLearned Gaussian emission distributions by hidden state:")
     print("features:", feature_names)
     for state_idx in range(model.n_components):
@@ -271,16 +254,22 @@ def main():
 
     outdir = create_output_dir(input_path, args.outdir)
 
-    lengths, observations, feature_names = load_dataset(input_path)
-    n_features = observations.shape[1]
+    lengths, raw_observations, feature_names = load_dataset(input_path)
+    n_features = raw_observations.shape[1]
 
     print("Dataset loaded successfully.")
     print(f"Input file: {input_path}")
     print(f"Output directory: {outdir}")
     print(f"Total timesteps: {lengths.sum()}")
-    print(f"Observation shape: {observations.shape}")
+    print(f"Observation shape: {raw_observations.shape}")
     print("features:", feature_names)
-    print("Input observations will be standardized before training.")
+    
+    # Added Standardization Logic
+    print("Standardizing observations before training...")
+    scaler = StandardScaler()
+    observations = scaler.fit_transform(raw_observations)
+    feature_mean = scaler.mean_
+    feature_std = scaler.scale_
 
     model, log_likelihood_history, converged_iteration = train_model_with_progress(
         observations=observations,
@@ -303,11 +292,12 @@ def main():
         args=args,
         lengths=lengths,
         decoded_states=decoded_states,
-        posterior_probs=posterior_probs
+        posterior_probs=posterior_probs,
+        feature_mean=feature_mean,
+        feature_std=feature_std
     )
 
     save_loglik_plot(outdir, log_likelihood_history)
-
     print_summary(feature_names, model)
 
     print("\nTraining completed.")
