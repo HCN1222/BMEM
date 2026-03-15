@@ -133,22 +133,28 @@ def main():
     print(f"Train Set: {X_train.shape[0]} observations across {len(lengths_train)} continuous sequences.")
     print(f"Eval Set:  {X_eval.shape[0]} observations across {len(lengths_eval)} continuous sequences.")
     
-    # 6. Save outputs into .npz files
-    print("Packing data into .npz archives...")
+    # 6. Save outputs into .npz and .parquet files
+    print("Packing data into output files...")
     
-    train_path = os.path.join(args.output_dir, 'hmm_data_train.npz')
-    eval_path = os.path.join(args.output_dir, 'hmm_data_eval.npz')
-    parquet_path = os.path.join(args.output_dir, 'final_vectors.parquet')
+    train_npz_path = os.path.join(args.output_dir, 'hmm_data_train.npz')
+    eval_npz_path = os.path.join(args.output_dir, 'hmm_data_eval.npz')
     
-    np.savez(train_path, lengths=lengths_train, observations=X_train, feature_names=feature_cols)
-    np.savez(eval_path, lengths=lengths_eval, observations=X_eval, feature_names=feature_cols)
+    # 分開定義 Train 和 Eval 的 Parquet 路徑
+    train_parquet_path = os.path.join(args.output_dir, 'final_vectors_train.parquet')
+    eval_parquet_path = os.path.join(args.output_dir, 'final_vectors_eval.parquet')
+    
+    np.savez(train_npz_path, lengths=lengths_train, observations=X_train, feature_names=feature_cols)
+    np.savez(eval_npz_path, lengths=lengths_eval, observations=X_eval, feature_names=feature_cols)
     
     out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'is_eval'] + feature_cols
-    cleaned_df[out_cols].to_parquet(parquet_path, index=False)
     
-    print(f"Saved training data to {train_path}")
-    print(f"Saved evaluation data to {eval_path}")
-    print("Done! All matrices packed and saved successfully.")
+    # 分別儲存 Train 和 Eval 的 DataFrame
+    train_df[out_cols].to_parquet(train_parquet_path, index=False)
+    eval_df[out_cols].to_parquet(eval_parquet_path, index=False)
+    
+    print(f"Saved training data to {train_npz_path} and {train_parquet_path}")
+    print(f"Saved evaluation data to {eval_npz_path} and {eval_parquet_path}")
+    print("Done! All matrices and dataframes packed and saved successfully.")
 
 if __name__ == '__main__':
     main()
