@@ -121,6 +121,8 @@ def main():
     # 5. Clean up & Split for hmmlearn
     # 加入新的特徵 'm_t'
     feature_cols = ['z_t', 'r_t', 'a_t', 's_t', 'm_t']
+    # feature_cols = ['m_t']
+
     
     # Drop rows with NaN (自動根據特徵需求裁切掉無法計算的前導天數)
     cleaned_df = df.dropna(subset=feature_cols).copy()

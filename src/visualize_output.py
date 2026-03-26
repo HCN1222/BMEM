@@ -1,4 +1,5 @@
 import matplotlib
+import matplotlib.patheffects as patheffects
 matplotlib.use('TkAgg') 
 
 import pandas as pd
@@ -15,7 +16,7 @@ print("1. Starting script...")
 # ==========================================
 try:
     df = pd.read_parquet('./data/preprocessed_data/final_vectors_train.parquet')
-    hmm_params = np.load('./outputs/result_20260315_174940/trained_hmm_params.npz')
+    hmm_params = np.load('./outputs/result_20260326_104333/states_5/trained_hmm_params.npz')
     states = hmm_params['decoded_states']
 except Exception as e:
     print(f"Error loading files: {e}")
@@ -52,7 +53,6 @@ def get_kline_data(stock_id, date_str):
         row = kdf.loc[date_str]
         if isinstance(row, pd.DataFrame): row = row.iloc[0]
         return row
-    assert 0
     return None
 
 # ==========================================
@@ -97,8 +97,6 @@ def draw_chart():
     
     # ----- 區塊 1: K-Line (Stock Price) -----
     valid_kline_drawn = False
-    
-    # 用來記錄當前區間的最高價與最低價，以便縮放 Y 軸
     window_min_price = float('inf')
     window_max_price = float('-inf')
     
@@ -111,7 +109,6 @@ def draw_chart():
             o, h, l, c = k_data['open'], k_data['max'], k_data['min'], k_data['close']
             color = 'red' if c >= o else 'green'
             
-            # 更新 Y 軸縮放範圍
             if l < window_min_price: window_min_price = l
             if h > window_max_price: window_max_price = h
             
@@ -124,9 +121,8 @@ def draw_chart():
     ax0.grid(True, linestyle='--', alpha=0.5)
     
     if valid_kline_drawn and window_min_price != float('inf'):
-        # 設定 Y 軸上下限，並加上 5% 的留白，才不會讓 K 線頂到天花板或地板
         padding = (window_max_price - window_min_price) * 0.05
-        if padding == 0: padding = window_max_price * 0.01 # 避免高低價相同時出錯
+        if padding == 0: padding = window_max_price * 0.01 
         ax0.set_ylim(window_min_price - padding, window_max_price + padding)
     else:
         ax0.text(0.5, 0.5, "No K-Line Data Found", ha='center', va='center', transform=ax0.transAxes)
@@ -156,9 +152,17 @@ def draw_chart():
     ax2.axhline(0, color='black', linewidth=0.8) 
     ax2.grid(True, linestyle='--', alpha=0.5)
 
-    # ----- 區塊 4: Predicted States -----
+    # ----- 區塊 4: Predicted States (加入數字標示) -----
     c_list = [state_colors[s] for s in sub_df['State']]
     ax3.bar(x_positions, [1]*len(sub_df), color=c_list, width=1.0)
+    
+    # 📌 在這裡加入數字標示
+    if WINDOW_SIZE <= 100:
+        for i, s in enumerate(sub_df['State']):
+            # 將 State 數字畫在高度 0.5 的中央，並加上粗體與黑邊框增加辨識度
+            ax3.text(i, 0.5, str(s), ha='center', va='center', fontsize=9, 
+                     color='white', fontweight='bold',
+                     path_effects=[patheffects.withStroke(linewidth=2, foreground='black')])
     
     ax3.set_title('Predicted States', fontsize=12)
     ax3.set_yticks([]) 
@@ -170,7 +174,6 @@ def draw_chart():
     ax3.set_xticks(x_positions[::step])
     ax3.set_xticklabels(date_labels[::step], rotation=45, ha='right', fontsize=9)
     
-    # 建立十字線
     hover_vlines = [ax.axvline(0, color='#333333', lw=1, ls='--', visible=False, zorder=99) for ax in (ax0, ax1, ax2, ax3)]
     hover_hlines = [ax.axhline(0, color='#333333', lw=1, ls='--', visible=False, zorder=99) for ax in (ax0, ax1, ax2, ax3)]
 
@@ -218,12 +221,10 @@ def on_motion(event):
         return
 
     if event.inaxes in (ax0, ax1, ax2, ax3):
-        # 1. 顯示垂直線 (貫穿)
         for vline in hover_vlines:
             vline.set_xdata([event.xdata, event.xdata])
             vline.set_visible(True)
             
-        # 2. 顯示水平線 (單一區塊)
         for i, ax in enumerate((ax0, ax1, ax2, ax3)):
             if event.inaxes == ax:
                 hover_hlines[i].set_ydata([event.ydata, event.ydata])
@@ -231,7 +232,6 @@ def on_motion(event):
             else:
                 hover_hlines[i].set_visible(False)
                 
-        # 3. 提示框
         x_idx = int(round(event.xdata))
         sub_df = df.iloc[current_idx : current_idx + WINDOW_SIZE]
         if 0 <= x_idx < len(sub_df):

@@ -138,6 +138,15 @@ def train_model_with_progress(
     model.means_ = means
     model.covars_ = covars
 
+    # ==========================================
+    # STICKY HMM QUICK FIX: Set Transition Prior
+    # ==========================================
+    stickiness_weight = 500.0 #1000.0  # Adjust this! Higher = more sticky
+    transmat_prior = np.ones((n_states, n_states))
+    np.fill_diagonal(transmat_prior, stickiness_weight)
+    model.transmat_prior = transmat_prior
+    # ==========================================
+
     log_likelihood_history = []
     converged_iteration = None
     progress_bar = tqdm(range(max_iterations), desc="Training HMM", unit="iter")
