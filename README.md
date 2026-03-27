@@ -74,46 +74,37 @@ $$m_5 = \frac{1}{5} \sum_{t=T-4}^{T} z_t$$
 $$s_t = \frac{1}{5} \sum_{i=t-4}^{t} \text{sign}(nb_{i})$$
 - Captures sustained buying or selling behavior.
 
-#### 6. Flow Price Alignment (5 days) $c_t$
-
----
-
-### Ablation study
-
-1. 對時序面做正規化(z-score)容易造成模型誤判，以20日 rolling window 做正規化為例:第一天大量買超但剩餘19天毫無動作，此舉會造成正規化後的剩餘19天皆處於賣超狀態
-
-**Not yet tested**
-Flow-Price alignment 與 covariance 交互
-
-1. 不加交互項 + full covariance
-2. 加$sign(𝑟)⋅𝑧$ + diag covariance
-3. 加$sign(𝑟)⋅sign(𝑧)$ + diag covariance
+#### 6. Flow Price Alignment $c_t$
 
 ### Result
 
-#### 測試結果
+##### EXP0
+嘗試了各種feature set，發現以下問題:
+1. 當對當日報酬以及淨買超做時序面正規化(z-score)容易造成模型誤判，以20日 rolling window 做正規化為例:第一天大量買超但剩餘19天毫無動作，此舉會造成正規化後的剩餘19天皆處於賣超狀態
+2. 當參數過少(如只有m_t)會導致模型過於簡化，沒有發揮到多維度資料處理的長處，直接用買賣超硬條件即可
+3. 當state數過少，會造成obsercation feature的標準差超大，分類失敗
 
- - 存放位置: `./outputs/result_20260326_104333/states_5`
- - 以下是GPT解說
+##### EXP1
+- 特徵矩陣: `[z_t, r_t, a_t, s_t, m_t]`
+- 關閉時序面標準化 `--disable_standardize`
+- 跑states = 2~6，發現state = 5 時 BIC最小
+**特徵矩陣中的 `r_t`在五個state中都一樣，判斷為沒有用**
 
-本模型使用 5 維特徵矩陣 `[z_t, r_t, a_t, s_t, m_t]` 訓練 Gaussian HMM，經過 BIC (Bayesian Information Criterion) 評估後，最佳狀態數為 5。模型成功從券商交易行為中，完美分離出具有高度物理意義的市場微結構，包含極端精準的「連續買超天數規律」。
+##### EXP2
+- 與EXP1 配置相同，但是把**r_t**改成**c_t**(flow-price alignment)
+- 特徵矩陣: `[z_t, c_t, a_t, s_t, m_t]`
+- 算法是sign(r_t) * sign(z_t)，但這樣狀態數太少只有[-1,0,1]
+- 跑states = 2~6，發現state = 6 時 BIC最小
+但是在state=6時，log likelihood不收斂，不斷跳上跳下
 
-![BIC_evaluation_curve](./outputs/result_20260326_104333/bic_evaluation_curve.png)
+另外發現在state數只有2跟3時，分別跌代4次跟2次及沒有improvement了
 
-| State | Market Behavior (市場行為) | Key Feature Signatures (關鍵特徵表現) | Physical Meaning & Analysis (物理意義與分析) |
-| :---: | :--- | :--- | :--- |
-| **3** | 💤 **Inactive / Rest**<br>(觀望與休眠期) | 所有特徵平均值與標準差皆為 `0.000` | **券商空手，無交易動作。**<br>模型完美的底層過濾器，自動將無交易紀錄（補 0）的休市或觀望日歸類於此，避免干擾其他交易狀態的變異數。 |
-| **2** | 🔥 **Aggressive Accumulation**<br>(極端強勢建倉) | **$s_t = 1.000$ (Std = 0.000)**<br>$z_t = 0.052$ (最高單日買超)<br>$m_t = 0.053$ (最高5日均買) | **機構法人連續 5 天無腦做多。**<br>$s_t=1$ 在數學上代表過去 5 天「每一天都在淨買超」。這顯示了極度強勢的波段吃貨行為，且通常伴隨著最高的大盤上漲報酬 ($r_t = 0.003$)。 |
-| **4** | 📈 **Steady Accumulation**<br>(穩健建倉/逢低承接) | **$s_t = 0.600$ (Std = 0.000)**<br>$a_t = 0.070$ (高活躍度)<br>$z_t = 0.027$ (溫和買超) | **有紀律的波段買盤（進 4 退 1）。**<br>$s_t=0.6$ 代表過去 5 天中有「4 天買超、1 天賣超」。相較於 State 2 的暴力拉升，這代表更聰明的拉回買進 (Buy on dips) 演算法或有耐心的建倉策略。 |
-| **0** | 🌪️ **Aggressive Distribution**<br>(高壓出貨/劇烈震盪) | **$a_t = 0.101$ (全場最高活躍度)**<br>$s_t = -0.221$ (高變異數 0.429)<br>$z_t = -0.013$ (淨賣超) | **伴隨巨大成交量的倒貨或多空交戰。**<br>活躍度極高但方向性震盪，代表券商同時有大量買賣單對敲（當沖或洗盤換手），但最終結算為實質淨賣出，為市場危險訊號（出量下跌）。 |
-| **1** | 📉 **Weak Distribution**<br>(弱勢調節/散戶雜訊) | $a_t = 0.033$ (低活躍度)<br>$z_t = -0.003$ (微弱賣超)<br>$s_t = -0.141$ (方向不明確) | **缺乏流動性的溫水煮青蛙或散戶賣壓。**<br>典型的「垃圾時間 (Garbage Time)」。券商偶爾零星賣出，交易不熱絡，對大盤價格幾乎沒有影響力 ($r_t = 0.000$)。 |
+**觀察發現模型不會進一步細分`flow-price alignment`與漲跌/買進的進一步關係(ex:把追漲+殺跌混再一起)**
 
-> **💡 Note on Features:** > * $z_t$: Normalized Net Buy (單日買賣超比例)
-> * $r_t$: Logarithmic Return (對數報酬率)
-> * $a_t$: Activity Level (市場活躍度/週轉率)
-> * $s_t$: Directional Persistence (近5日方向持續性)
-> * $m_t$: 5-day Moving Average of $z_t$ (近5日買賣超動能)
+##### EXP3
+- 把c_t改成五個狀態[-2,-1,0,1,2]，依序分別代表(跌+賣/漲+賣/沒操作/跌+買/漲+買)
+- 並且發現在state = 9時，達到BIC的轉折點，並且收斂得很好
 
-
+**不過數太多很難解釋，打算直接喂給XBoost，找尋state與漲幅關係**
 
 # 下面是筆記

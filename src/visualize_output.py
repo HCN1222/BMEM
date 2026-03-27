@@ -16,7 +16,7 @@ print("1. Starting script...")
 # ==========================================
 try:
     df = pd.read_parquet('./data/preprocessed_data/final_vectors_train.parquet')
-    hmm_params = np.load('./outputs/result_20260326_104333/states_5/trained_hmm_params.npz')
+    hmm_params = np.load('./outputs/result_20260326_212152/states_6/trained_hmm_params.npz')
     states = hmm_params['decoded_states']
 except Exception as e:
     print(f"Error loading files: {e}")

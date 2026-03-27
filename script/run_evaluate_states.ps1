@@ -3,5 +3,5 @@ python ./src/evaluate_states.py `
     --outdir "./outputs" `
     --iterations 200 `
     --covariance_type "full" `
-    --min_states 2 `
-    --max_states 6
+    --min_states 10 `
+    --max_states 12
