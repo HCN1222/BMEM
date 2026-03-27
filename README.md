@@ -88,6 +88,7 @@ $$s_t = \frac{1}{5} \sum_{i=t-4}^{t} \text{sign}(nb_{i})$$
 - 特徵矩陣: `[z_t, r_t, a_t, s_t, m_t]`
 - 關閉時序面標準化 `--disable_standardize`
 - 跑states = 2~6，發現state = 5 時 BIC最小
+
 **特徵矩陣中的 `r_t`在五個state中都一樣，判斷為沒有用**
 
 ##### EXP2
@@ -105,6 +106,6 @@ $$s_t = \frac{1}{5} \sum_{i=t-4}^{t} \text{sign}(nb_{i})$$
 - 把c_t改成五個狀態[-2,-1,0,1,2]，依序分別代表(跌+賣/漲+賣/沒操作/跌+買/漲+買)
 - 並且發現在state = 9時，達到BIC的轉折點，並且收斂得很好
 
-**不過數太多很難解釋，打算直接喂給XBoost，找尋state與漲幅關係**
+**不過state數太多很難解釋，打算直接喂給XBoost，找尋state與漲幅關係**
 
 # 下面是筆記
