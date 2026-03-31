@@ -12,7 +12,7 @@ print("1. 正在載入主資料與 HMM 狀態...")
 # 1. 載入資料與對齊
 # ==========================================
 try:
-    df = pd.read_parquet('./data/preprocessed_data/final_vectors_train.parquet')
+    df = pd.read_parquet('./data/preprocessed_data/exp3/final_vectors_train.parquet')
     hmm_params = np.load('./outputs/exp3/states_10/trained_hmm_params.npz')
     states = hmm_params['decoded_states']
 except Exception as e:
