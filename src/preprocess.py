@@ -72,7 +72,7 @@ def main():
     long_breaks = market_days[(market_days['date_diff'] > 7) & (market_days['date'].dt.year >= args.split_year)]
     split_dates = long_breaks.groupby('stock_id')['date'].min()
 
-    stock_subset = stock_df[['date', 'stock_id', 'Trading_Volume', 'r_t', 'r_t_raw']]
+    stock_subset = stock_df[['date', 'stock_id', 'close', 'Trading_Volume', 'r_t', 'r_t_raw']]
 
     # 3. Build Skeleton & Merge
     print("Aligning broker data to continuous market trading days...")
@@ -85,6 +85,9 @@ def main():
     df['sell'] = df['sell'].fillna(0)
     df['net_buy'] = df['net_buy'].fillna(0)
 
+    if 'net_buy_amount' in df.columns:
+        df['net_buy_amount'] = df['net_buy_amount'].fillna(0)
+    
     df = df.merge(split_dates.rename('split_date'), on='stock_id', how='left')
     df['split_date'] = df['split_date'].fillna(pd.Timestamp('2099-12-31'))
     df['is_eval'] = df['date'] >= df['split_date']
@@ -93,6 +96,27 @@ def main():
     print("Calculating observation vectors...")
     df = df.sort_values(by=['stock_id', 'securities_trader_id', 'date'])
     grouped_trader = df.groupby(['stock_id', 'securities_trader_id'])
+
+    # === [FOR EDA]: 計算券商 20日/60日 成本價及 60日 累積買超金額 ===
+    if 'net_buy_amount' in df.columns:
+        # 滾動計算累積金額與累積股數 (min_periods=1 確保前幾天也有初步加總資料)
+        df['net_buy_amt_20d'] = grouped_trader['net_buy_amount'].transform(lambda x: x.rolling(window=20, min_periods=1).sum())
+        df['net_buy_vol_20d'] = grouped_trader['net_buy'].transform(lambda x: x.rolling(window=20, min_periods=1).sum())
+        
+        df['net_buy_amt_60d'] = grouped_trader['net_buy_amount'].transform(lambda x: x.rolling(window=60, min_periods=1).sum())
+        df['net_buy_vol_60d'] = grouped_trader['net_buy'].transform(lambda x: x.rolling(window=60, min_periods=1).sum())
+        
+        # 成本價 = 累積金額 / 累積股數。
+        # 取代 inf (遇到股數為0) 為 NaN，最後將所有計算不足或無法計算的 NaN 填為 0
+        df['cost_20d'] = (df['net_buy_amt_20d'] / df['net_buy_vol_20d']).replace([np.inf, -np.inf], np.nan).fillna(0)
+        df['cost_60d'] = (df['net_buy_amt_60d'] / df['net_buy_vol_60d']).replace([np.inf, -np.inf], np.nan).fillna(0)
+    else:
+        # 防呆機制
+        print("WARNING: 'net_buy_amount' not found in broker data! Filling EDA columns with 0.")
+        df['cost_20d'] = 0
+        df['cost_60d'] = 0
+        df['net_buy_amt_60d'] = 0
+    # ==========================================================
 
     # Feature 1 (z_t), Feature 3 (a_t) & Feature 5 (m_t)
     df['z_t_raw'] = df['net_buy'] / df['Trading_Volume']
@@ -175,8 +199,10 @@ def main():
     np.savez(train_npz_path, lengths=lengths_train, observations=X_train, feature_names=feature_cols)
     np.savez(eval_npz_path, lengths=lengths_eval, observations=X_eval, feature_names=feature_cols)
 
-    out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'net_buy'] + feature_cols
-
+    # [FOR EDA]: 在輸出 parquet 的清單中，額外加入剛算好的 close, net_buy_amt_60d, cost_20d, cost_60d
+    out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'close', 'net_buy', 
+                'net_buy_amt_60d', 'cost_20d', 'cost_60d'] + feature_cols
+    
     train_df[out_cols].to_parquet(train_parquet_path, index=False)
     eval_df[out_cols].to_parquet(eval_parquet_path, index=False)
 
