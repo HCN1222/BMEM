@@ -4,6 +4,13 @@
 Step1. 利用HMM分析外資(美林)`建倉/持倉/清倉` 狀態，縮小選股範圍
 Step2. 如果順利再利用Gradient Boosted Decision Tree分析多個外資狀態與股價關係
 
+## SRC 檔案供用(未整理)
+
+打 x 表示現在已經沒什麼用，是當初研發時初步簡單的測試而已，已經被更複雜的測試取代
+- `__init__.py`: package file
+- `analyze_hmm_returns`: 粗淺的EDA測試(x)
+
+
 ## Data
 資料使用Finmind API下載
 [Finmind](https://finmindtrade.com/analysis/#/data/api)
