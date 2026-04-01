@@ -8,8 +8,16 @@ Step2. 如果順利再利用Gradient Boosted Decision Tree分析多個外資狀�
 
 打 x 表示現在已經沒什麼用，是當初研發時初步簡單的測試而已，已經被更複雜的測試取代
 - `__init__.py`: package file
-- `analyze_hmm_returns`: 粗淺的EDA測試(x)
-
+- `download_broker_activity`: 一開始下載broker資料的script
+- `download_stock_info`: 一開始下載stock資料的script
+- `evaluate_states`: 利用迴圈跑BIC方便找出HMM最適合的狀態數
+- `evaluate_strategy_test`: rolling verterbi解碼 + 給定條件下測試每個state勝率(x)
+- `portfolio_backtest.py`: 以總資金100萬下去測試XGBoost與EDA，並與0050做比較
+- `prepare_xgb_data.py`: 利用現有HMM模型，將資訊以及狀態(機率)與target打包成表格供XGBoost用
+- `preprocess.py`: 過濾有問題的資料(包含0, NaN等骯髒的資料)，並且將資料切分為train 跟eval，然後把特徵抽取出來打包給HMM訓練用
+- `train_XGBoost.py`: 訓練XGBoost
+- `train.py`: 訓練HMM
+- `visualize_output.py`: 視覺化顯示HMM分類(一開始檢視HMM分的理不理想用)
 
 ## Data
 資料使用Finmind API下載
