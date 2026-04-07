@@ -48,7 +48,7 @@ TAX_SELL = 0.003
 print("\n2. 生成 XGBoost 與 EDA 策略進場訊號...")
 
 # 策略 A: XGBoost (門檻 0.70)
-XGB_THRESHOLD = 0.71
+XGB_THRESHOLD = 0.6
 xgb_signals = df_eval[df_eval['pred_prob'] >= XGB_THRESHOLD].copy()
 xgb_signals['date'] = xgb_signals['date'].astype(str).str[:10]
 xgb_signals['sort_prob'] = xgb_signals['pred_prob'] # 換股依據: XGB 機率
