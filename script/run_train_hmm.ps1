@@ -1,4 +1,4 @@
-python ./src/train.py `
+python ./src/train_hmm.py `
     --input_file "./data/preprocessed_data/exp3/hmm_data_train.npz" `
     --outdir "./outputs" `
     --iterations 200 `
