@@ -14,8 +14,8 @@ print("1. 載入並切分 XGBoost 資料集 (Train / Val / Test)...")
 # ==========================================
 # 1. 載入資料與時間序列切分
 # ==========================================
-train_path = './data/preprocessed_data/xgb_dataset_train.parquet'
-eval_path = './data/preprocessed_data/xgb_dataset_eval.parquet'
+train_path = './data/preprocessed_data/xgb_dataset_short_train.parquet'
+eval_path = './data/preprocessed_data/xgb_dataset_short_eval.parquet'
 
 try:
     # 讀取完整資料

@@ -97,25 +97,31 @@ def main():
     df = df.sort_values(by=['stock_id', 'securities_trader_id', 'date'])
     grouped_trader = df.groupby(['stock_id', 'securities_trader_id'])
 
-    # === [FOR EDA]: 計算券商 20日/60日 成本價及 60日 累積買超金額 ===
+    # === [FOR EDA]: 計算券商 20日/60日 成本價及累積買超金額 ===
     if 'net_buy_amount' in df.columns:
-        # 滾動計算累積金額與累積股數 (min_periods=1 確保前幾天也有初步加總資料)
+        # 滾動計算累積金額與累積股數
         df['net_buy_amt_20d'] = grouped_trader['net_buy_amount'].transform(lambda x: x.rolling(window=20, min_periods=1).sum())
         df['net_buy_vol_20d'] = grouped_trader['net_buy'].transform(lambda x: x.rolling(window=20, min_periods=1).sum())
         
         df['net_buy_amt_60d'] = grouped_trader['net_buy_amount'].transform(lambda x: x.rolling(window=60, min_periods=1).sum())
         df['net_buy_vol_60d'] = grouped_trader['net_buy'].transform(lambda x: x.rolling(window=60, min_periods=1).sum())
         
-        # 成本價 = 累積金額 / 累積股數。
-        # 取代 inf (遇到股數為0) 為 NaN，最後將所有計算不足或無法計算的 NaN 填為 0
+        # 成本價 = 累積金額 / 累積股數
         df['cost_20d'] = (df['net_buy_amt_20d'] / df['net_buy_vol_20d']).replace([np.inf, -np.inf], np.nan).fillna(0)
         df['cost_60d'] = (df['net_buy_amt_60d'] / df['net_buy_vol_60d']).replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        # [NEW] 計算乖離率 bias_20d, bias_60d
+        df['bias_20d'] = np.where(df['cost_20d'] > 0, df['close'] / df['cost_20d'] - 1, np.nan)
+        df['bias_60d'] = np.where(df['cost_60d'] > 0, df['close'] / df['cost_60d'] - 1, np.nan)
     else:
         # 防呆機制
         print("WARNING: 'net_buy_amount' not found in broker data! Filling EDA columns with 0.")
         df['cost_20d'] = 0
         df['cost_60d'] = 0
+        df['net_buy_amt_20d'] = 0
         df['net_buy_amt_60d'] = 0
+        df['bias_20d'] = np.nan
+        df['bias_60d'] = np.nan
     # ==========================================================
 
     # Feature 1 (z_t), Feature 3 (a_t) & Feature 5 (m_t)
@@ -166,7 +172,6 @@ def main():
 
 
     # 5. Clean up & Split for hmmlearn
-    # feature_cols = ['z_t', 'r_t', 'a_t', 's_t', 'm_t']
     feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t']
 
     # Drop rows with NaN (自動根據特徵需求裁切掉無法計算的前導天數)
@@ -199,9 +204,9 @@ def main():
     np.savez(train_npz_path, lengths=lengths_train, observations=X_train, feature_names=feature_cols)
     np.savez(eval_npz_path, lengths=lengths_eval, observations=X_eval, feature_names=feature_cols)
 
-    # [FOR EDA]: 在輸出 parquet 的清單中，額外加入剛算好的 close, net_buy_amt_60d, cost_20d, cost_60d
+    # [NEW] 在輸出 parquet 的清單中，確保加入了 net_buy_amt_20d 與兩組 bias
     out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'close', 'net_buy', 
-                'net_buy_amt_60d', 'cost_20d', 'cost_60d'] + feature_cols
+                'net_buy_amt_20d', 'net_buy_amt_60d', 'cost_20d', 'cost_60d', 'bias_20d', 'bias_60d'] + feature_cols
     
     train_df[out_cols].to_parquet(train_parquet_path, index=False)
     eval_df[out_cols].to_parquet(eval_parquet_path, index=False)

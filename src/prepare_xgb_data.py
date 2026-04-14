@@ -83,12 +83,10 @@ def rolling_predict_proba(sequence_features, hmm_model, window=120):
     for t in range(seq_len):
         start_idx = max(0, t - window + 1)
         X_window = sequence_features[start_idx : t + 1]
-        # 計算視窗內的所有機率，但只取最後一天 (T日) 的機率
         window_probs = hmm_model.predict_proba(X_window)
         probs[t] = window_probs[-1]
     return probs
 
-# 逐一計算 Eval sequences
 eval_probs_list = []
 grouped_eval = df_eval.groupby('sequence_id')
 for seq_id, group in tqdm(grouped_eval, desc="Eval 滾動機率", total=len(grouped_eval)):
@@ -98,16 +96,13 @@ for seq_id, group in tqdm(grouped_eval, desc="Eval 滾動機率", total=len(grou
 prob_df_eval = pd.concat(eval_probs_list)
 df_eval = pd.concat([df_eval, prob_df_eval], axis=1)
 
-print("4. 正在計算衍生特徵與實戰標籤 (Target Y)...")
+print("4. 正在計算衍生特徵與實戰標籤 (做多與做空 Target Y)...")
 # ==========================================
-# 4. 合併資料以批次計算 Target Y 與乖離率
+# 4. 合併資料以批次計算 Target Y (乖離率已在 preprocess 算完)
 # ==========================================
 df_train['is_eval'] = False
 df_eval['is_eval'] = True
 df_all = pd.concat([df_train, df_eval], ignore_index=True)
-
-# 計算 60 日成本乖離率 (Bias)
-df_all['bias_60d'] = np.where(df_all['cost_60d'] > 0, df_all['close'] / df_all['cost_60d'] - 1, np.nan)
 
 unique_stocks = df_all['stock_id'].unique()
 return_records = []
@@ -120,6 +115,11 @@ for stock_id in tqdm(unique_stocks, desc="計算未來價格極值"):
         kdf['date'] = kdf['date'].astype(str).str[:10]
         kdf = kdf.sort_values('date')
         
+        # 處理 0050 於 6/18 之後的價格調整 (乘以 4)
+        if str(stock_id) == '0050':
+            split_mask = kdf['date'] >= '2025-06-18' 
+            kdf.loc[split_mask, ['close', 'max', 'min']] *= 4
+
         kdf['future_2w_high'] = kdf['max'].shift(-1).rolling(window=forward_indexer, min_periods=1).max()
         kdf['future_2w_low']  = kdf['min'].shift(-1).rolling(window=forward_indexer, min_periods=1).min()
         
@@ -137,26 +137,53 @@ df_all = pd.merge(df_all, all_returns, on=['stock_id', 'date'], how='left')
 # 移除無法計算標籤的尾端資料
 df_all = df_all.dropna(subset=['high_ret', 'low_ret'])
 
-# 目標：獲利達到 10% 且 過程中未觸發 10% 停損
-df_all['target_y'] = ((df_all['high_ret'] >= 0.10) & (df_all['low_ret'] > -0.10)).astype(int)
+# 目標 1 (做多策略)：獲利達到 10% 且 過程中未觸發 10% 停損 (即跌幅 > -10%)
+df_all['target_y_long'] = ((df_all['high_ret'] >= 0.10) & (df_all['low_ret'] > -0.10)).astype(int)
 
-print("5. 正在切分並儲存 XGBoost 專用資料集...")
+# 目標 2 (做空策略)：最大跌幅達到 10% (low_ret <= -0.10) 且 過程中未觸發 10% 停損 (即最大漲幅 < 10%)
+df_all['target_y_short'] = ((df_all['low_ret'] <= -0.10) & (df_all['high_ret'] < 0.10)).astype(int)
+
+print("5. 正在切分並儲存 XGBoost 專用資料集 (分別輸出 Long 與 Short)...")
 # ==========================================
 # 5. 切分 Train/Eval 並存檔
 # ==========================================
-out_cols = ['date', 'stock_id', 'securities_trader_id', 'sequence_id', 'close', 
-            'net_buy', 'net_buy_amt_60d', 'cost_20d', 'cost_60d', 'bias_60d', 
-            'high_ret', 'low_ret', 'target_y'] + feature_cols + prob_cols
+# 基礎欄位 (不包含標籤)
+base_cols = [ 
+    'date', 'stock_id', 'securities_trader_id', 'sequence_id', 
+    'net_buy_amt_60d', 'bias_60d'
+] + feature_cols + prob_cols
 
 final_train = df_all[~df_all['is_eval']].copy()
 final_eval = df_all[df_all['is_eval']].copy()
 
-train_out_path = './data/preprocessed_data/xgb_dataset_train.parquet'
-eval_out_path = './data/preprocessed_data/xgb_dataset_eval.parquet'
+# 定義輸出路徑
+train_long_out_path = './data/preprocessed_data/xgb_dataset_long_train.parquet'
+eval_long_out_path = './data/preprocessed_data/xgb_dataset_long_eval.parquet'
 
-final_train[out_cols].to_parquet(train_out_path, index=False)
-final_eval[out_cols].to_parquet(eval_out_path, index=False)
+train_short_out_path = './data/preprocessed_data/xgb_dataset_short_train.parquet'
+eval_short_out_path = './data/preprocessed_data/xgb_dataset_short_eval.parquet'
 
-print(f"✅ XGBoost 訓練資料集已儲存: {train_out_path} (總筆數: {len(final_train):,})")
-print(f"✅ XGBoost 驗證資料集已儲存: {eval_out_path} (總筆數: {len(final_eval):,})")
-print(f"全局基礎勝率 (Base Rate) Train: {final_train['target_y'].mean()*100:.2f}% | Eval: {final_eval['target_y'].mean()*100:.2f}%")
+# === 處理做多資料集 ===
+# 將 target_y_long 重新命名為 target_y，方便 XGBoost 直接訓練
+df_long_train = final_train[base_cols + ['target_y_long']].rename(columns={'target_y_long': 'target_y'})
+df_long_eval = final_eval[base_cols + ['target_y_long']].rename(columns={'target_y_long': 'target_y'})
+
+df_long_train.to_parquet(train_long_out_path, index=False)
+df_long_eval.to_parquet(eval_long_out_path, index=False)
+
+# === 處理做空資料集 ===
+# 將 target_y_short 重新命名為 target_y
+df_short_train = final_train[base_cols + ['target_y_short']].rename(columns={'target_y_short': 'target_y'})
+df_short_eval = final_eval[base_cols + ['target_y_short']].rename(columns={'target_y_short': 'target_y'})
+
+df_short_train.to_parquet(train_short_out_path, index=False)
+df_short_eval.to_parquet(eval_short_out_path, index=False)
+
+# 輸出結果統計
+print(f"✅ XGBoost [做多] 訓練資料集已儲存: {train_long_out_path}")
+print(f"✅ XGBoost [做多] 驗證資料集已儲存: {eval_long_out_path}")
+print(f"   [做多] 全局基礎勝率 (Base Rate) Train: {df_long_train['target_y'].mean()*100:.2f}% | Eval: {df_long_eval['target_y'].mean()*100:.2f}%\n")
+
+print(f"✅ XGBoost [做空] 訓練資料集已儲存: {train_short_out_path}")
+print(f"✅ XGBoost [做空] 驗證資料集已儲存: {eval_short_out_path}")
+print(f"   [做空] 全局基礎勝率 (Base Rate) Train: {df_short_train['target_y'].mean()*100:.2f}% | Eval: {df_short_eval['target_y'].mean()*100:.2f}%")
