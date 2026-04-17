@@ -1,4 +1,4 @@
-python ./src/evaluate_states.py `
+python ./src/experiments/evaluate_states.py `
     --input_file "./data/preprocessed_data/exp3/hmm_data_train.npz" `
     --outdir "./outputs" `
     --iterations 200 `

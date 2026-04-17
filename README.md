@@ -2,7 +2,7 @@
 
 **Believe Merrill Enrich the Meal**
 Step1. 利用HMM分析外資(美林)`建倉/持倉/清倉` 狀態，縮小選股範圍
-Step2. 如果順利再利用Gradient Boosted Decision Tree分析多個外資狀態與股價關係
+Step2. 利用Gradient Boosted Decision Tree分析多個外資狀態與股價關係
 
 ## SRC 檔案供用(未整理)
 

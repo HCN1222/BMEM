@@ -39,9 +39,18 @@ feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'
 # XGBoost 預測雙向機率
 print("   -> 正在預測做多與做空機率...")
 X_eval = df_eval[feature_cols]
-df_eval['pred_prob_long'] = clf_long.predict_proba(X_eval)[:, 1]   
-df_eval['pred_prob_short'] = clf_short.predict_proba(X_eval)[:, 1] 
+df_eval['pred_prob_long'] = clf_long.predict_proba(X_eval)[:, 1]
+df_eval['pred_prob_short'] = clf_short.predict_proba(X_eval)[:, 1]
 df_eval['date'] = df_eval['date'].astype(str).str[:10]
+
+# 計算做多機率的 EMA 平滑版本 (依個股分組，按日期排序)
+print("   -> 正在計算做多機率 EMA 平滑 (span=3, 5, 10)...")
+df_eval = df_eval.sort_values(['stock_id', 'date'])
+for span in [3, 5, 10]:
+    df_eval[f'pred_prob_long_ema{span}'] = (
+        df_eval.groupby('stock_id')['pred_prob_long']
+               .transform(lambda x, s=span: x.ewm(span=s, adjust=False, min_periods=1).mean())
+    )
 
 # 全域交易參數
 INITIAL_CAPITAL = 1000000 
@@ -57,7 +66,7 @@ all_signal_stocks = set(df_eval['stock_id'].unique())
 kline_cache = {}
 
 for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
-    kline_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-02-11.parquet"
+    kline_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-04-16.parquet"
     if os.path.exists(kline_path):
         kdf = pd.read_parquet(kline_path)
         kdf['date'] = kdf['date'].astype(str).str[:10]
@@ -65,7 +74,7 @@ for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
         kline_cache[stock_id] = kdf
 
 df_0050 = None
-benchmark_path = "./data/stocks/0050_2021-06-30_to_2026-02-11.parquet"
+benchmark_path = "./data/stocks/0050_2021-06-30_to_2026-04-16.parquet"
 if os.path.exists(benchmark_path):
     df_0050 = pd.read_parquet(benchmark_path)
     df_0050['date'] = df_0050['date'].astype(str).str[:10]
@@ -82,7 +91,7 @@ if os.path.exists(benchmark_path):
 # ==========================================
 all_dates = sorted(df_eval['date'].unique())
 
-def run_top_n_backtest(eval_df, n, long_threshold=0.6, short_threshold=0.6, trailing_stop_ratio=0.8):
+def run_top_n_backtest(eval_df, n, long_threshold=0.6, short_threshold=0.6, trailing_stop_ratio=0.8, short_prob_col='pred_prob_short', long_prob_col='pred_prob_long'):
     cash = INITIAL_CAPITAL
     current_holdings = {}  
     equity_curve = []   
@@ -147,7 +156,7 @@ def run_top_n_backtest(eval_df, n, long_threshold=0.6, short_threshold=0.6, trai
             for stock_id, holding in current_holdings.items():
                 stock_pred = today_preds[today_preds['stock_id'] == stock_id]
                 if not stock_pred.empty:
-                    short_prob = stock_pred.iloc[0]['pred_prob_short']
+                    short_prob = stock_pred.iloc[0][short_prob_col]
                     if short_prob >= short_threshold:
                         stocks_to_sell_by_model.append((stock_id, short_prob)) # 紀錄觸發的做空機率
             
@@ -173,20 +182,20 @@ def run_top_n_backtest(eval_df, n, long_threshold=0.6, short_threshold=0.6, trai
                     del current_holdings[stock_id]
 
             # [B-2] 做多模型檢查：買入與汰弱留強
-            long_candidates = today_preds[today_preds['pred_prob_long'] >= long_threshold].copy()
-            
+            long_candidates = today_preds[today_preds[long_prob_col] >= long_threshold].copy()
+
             for stock_id, holding in current_holdings.items():
                 if stock_id in long_candidates['stock_id'].values:
-                    new_prob = long_candidates[long_candidates['stock_id'] == stock_id].iloc[0]['pred_prob_long']
+                    new_prob = long_candidates[long_candidates['stock_id'] == stock_id].iloc[0][long_prob_col]
                     if new_prob > holding['buy_prob_long']:
                         holding['buy_prob_long'] = new_prob
 
             candidates = long_candidates[~long_candidates['stock_id'].isin(current_holdings.keys())]
-            candidates = candidates.sort_values('pred_prob_long', ascending=False)
-            
+            candidates = candidates.sort_values(long_prob_col, ascending=False)
+
             for _, candidate in candidates.iterrows():
                 cand_id = candidate['stock_id']
-                cand_prob = candidate['pred_prob_long']
+                cand_prob = candidate[long_prob_col]
                 
                 if len(current_holdings) < n:
                     buy_price, actual_buy_date = get_next_open_price(cand_id, today)
@@ -390,7 +399,7 @@ print("-" * 85)
 row_equity = f"{'期末淨值':<12} |"
 for n in n_values:
     row_equity += f" {int(results[n]['equity'].iloc[-1]['equity']):<11,} |"
-row_equity += f" {int(df_0050_eq['equity'].iloc[-1]) if df_0050 is not None else 'N/A':<11,}"
+row_equity += f" {int(df_0050_eq['equity'].iloc[-1]):>11,}" if df_0050 is not None else f" {'N/A':<11}"
 print(row_equity)
 
 # 總報酬率
@@ -446,6 +455,133 @@ if len(top1_trades) > 0:
     print(f"✅ Top-1 交易明細已成功儲存至: {csv_path}")
 else:
     print("⚠️ Top-1 策略在此期間內沒有任何交易紀錄。")
+
+# ==========================================
+# 7. EMA 平滑做多機率 對比回測 (Top-1, Top-3, Top-5)
+# ==========================================
+print("\n7. 執行 EMA 做多機率平滑策略對比 (Top-1, Top-3, Top-5)...")
+
+ema_variants = {
+    '原始 (無平滑)': 'pred_prob_long',
+    'EMA-3':         'pred_prob_long_ema3',
+    'EMA-5':         'pred_prob_long_ema5',
+    'EMA-10':        'pred_prob_long_ema10',
+}
+ema_colors = ['#d62728', '#ff7f0e', '#2ca02c', '#9467bd']
+EMA_N_VALUES = [1, 3, 5]
+
+# 執行所有 (Top-N × EMA variant) 組合的回測
+ema_all_results = {}  # key: (n, label)
+for ema_n in EMA_N_VALUES:
+    for label, col in ema_variants.items():
+        print(f"   -> Top-{ema_n} × {label} 正在回測...")
+        eq, trades, ret, mdd = run_top_n_backtest(
+            eval_df=df_eval,
+            n=ema_n,
+            long_threshold=LONG_PROB_THRESHOLD,
+            short_threshold=SHORT_PROB_THRESHOLD,
+            trailing_stop_ratio=TRAILING_STOP,
+            long_prob_col=col,
+        )
+        ema_all_results[(ema_n, label)] = {'equity': eq, 'trades': trades, 'ret': ret, 'mdd': mdd}
+
+# 8. 繪製並儲存 EMA 對比圖表 (每個 Top-N 一張)
+print("\n8. 繪製並儲存 EMA 對比圖表...")
+for ema_n in EMA_N_VALUES:
+    fig2, (ax3, ax4) = plt.subplots(2, 1, figsize=(16, 11), gridspec_kw={'height_ratios': [3, 1]}, sharex=True)
+
+    for i, label in enumerate(ema_variants):
+        res = ema_all_results[(ema_n, label)]
+        ax3.plot(res['equity']['date'], res['equity']['equity'],
+                 color=ema_colors[i], linewidth=2.0,
+                 label=f'{label} (總報酬: {res["ret"]*100:.2f}%)')
+
+    if df_0050 is not None:
+        ax3.plot(df_0050_eq['date'], df_0050_eq['equity'],
+                 color='#1f77b4', linewidth=1.5, linestyle='--', alpha=0.8,
+                 label=f'0050 大盤 (總報酬: {benchmark_return*100:.2f}%)')
+
+    ax3.set_title(f'EMA 做多機率平滑策略對比 (Top-{ema_n}) vs 0050', fontsize=16, fontweight='bold')
+    ax3.set_ylabel('帳戶總淨值 (TWD)', fontsize=12)
+    ax3.grid(True, linestyle='--', alpha=0.6)
+    ax3.legend(loc='upper left', fontsize=11)
+    ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
+
+    for i, label in enumerate(ema_variants):
+        res = ema_all_results[(ema_n, label)]
+        ax4.plot(res['equity']['date'], res['equity']['drawdown'] * 100,
+                 color=ema_colors[i], linewidth=1.2, alpha=0.8,
+                 label=f'{label} MDD: {res["mdd"]*100:.1f}%')
+
+    if df_0050 is not None:
+        ax4.plot(df_0050_eq['date'], df_0050_eq['drawdown'] * 100,
+                 color='#1f77b4', linewidth=1.5, linestyle='--', alpha=0.8,
+                 label=f'0050 MDD: {benchmark_mdd*100:.1f}%')
+
+    ax4.set_ylabel('回撤比例 (%)', fontsize=12)
+    ax4.set_xlabel('日期', fontsize=12)
+    ax4.grid(True, linestyle='--', alpha=0.6)
+    ax4.legend(loc='lower left', fontsize=10, ncol=2)
+    ax4.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    plt.xticks(rotation=45)
+
+    plt.tight_layout()
+    ema_save_path = f'./outputs/backtest/equity_curve_ema_long_top{ema_n}_comparison.png'
+    plt.savefig(ema_save_path, dpi=300)
+    print(f"   ✅ Top-{ema_n} 圖表已儲存至: {ema_save_path}")
+    plt.close(fig2)
+
+# 輸出 EMA 對比表格 (每個 Top-N 一個區塊)
+for ema_n in EMA_N_VALUES:
+    print("\n" + "="*90)
+    print(f" {'EMA 做多平滑策略對比結果 (Top-'+str(ema_n)+', 初始 100 萬)':^85} ")
+    print("="*90)
+
+    header2 = f"{'指標':<14} |"
+    for label in ema_variants:
+        header2 += f" {label:<14} |"
+    header2 += f" {'0050大盤':<11}"
+    print(header2)
+    print("-" * 90)
+
+    row_eq2 = f"{'期末淨值':<12} |"
+    for label in ema_variants:
+        res = ema_all_results[(ema_n, label)]
+        row_eq2 += f" {int(res['equity'].iloc[-1]['equity']):<14,} |"
+    row_eq2 += f" {int(df_0050_eq['equity'].iloc[-1]):>11,}" if df_0050 is not None else f" {'N/A':<11}"
+    print(row_eq2)
+
+    row_ret2 = f"{'總報酬率':<12} |"
+    for label in ema_variants:
+        res = ema_all_results[(ema_n, label)]
+        row_ret2 += f" {res['ret']*100:>12.2f}% |"
+    row_ret2 += f" {benchmark_return*100:>9.2f}%"
+    print(row_ret2)
+
+    row_mdd2 = f"{'最大回撤(MDD)':<11} |"
+    for label in ema_variants:
+        res = ema_all_results[(ema_n, label)]
+        row_mdd2 += f" {res['mdd']*100:>12.2f}% |"
+    row_mdd2 += f" {benchmark_mdd*100:>9.2f}%"
+    print(row_mdd2)
+
+    row_trades2 = f"{'總交易次數':<12} |"
+    for label in ema_variants:
+        res = ema_all_results[(ema_n, label)]
+        row_trades2 += f" {len(res['trades']):>11} 次 |"
+    row_trades2 += f" {'N/A':>10}"
+    print(row_trades2)
+
+    row_wr2 = f"{'實戰勝率':<12} |"
+    for label in ema_variants:
+        res = ema_all_results[(ema_n, label)]
+        trades = res['trades']
+        wr = sum(1 for t in trades if t['報酬率'] > 0) / len(trades) if trades else 0
+        row_wr2 += f" {wr*100:>12.2f}% |"
+    row_wr2 += f" {'N/A':>10}"
+    print(row_wr2)
+
+    print("="*90)
 
 # 顯示圖表
 plt.show()

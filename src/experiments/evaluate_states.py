@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # 直接從你的 train.py 匯入所有精華函數
-from src.train_hmm import (
+from src.experiments.train_hmm import (
     load_dataset, 
     train_model_with_progress, 
     create_output_dir, 

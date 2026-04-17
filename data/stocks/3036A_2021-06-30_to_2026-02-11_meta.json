@@ -1,9 +1,7 @@
 {
-  "created_at": "2026-02-23T20:27:20",
-  "mode": "list",
-  "stock_id": "3036A",
+  "updated_at": "2026-04-17T10:24:16",
   "start_date": "2021-06-30",
   "end_date": "2026-02-11",
   "rows": 1128,
-  "output_file": "data\\stocks\\3036A_2021-06-30_to_2026-02-11.parquet"
+  "stock_id": "3036A"
 }

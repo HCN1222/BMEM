@@ -42,7 +42,7 @@ $brokers = @(
 foreach ($b in $brokers) {
     Write-Host "=== Running: $($b.Name) (trader-id=$($b.TraderId)) ==="
 
-    & python ./src/download_broker_activity.py `
+    & python ./src/experiments/download_broker_activity.py `
         --start $start `
         --end $end `
         --trader-id $($b.TraderId) `

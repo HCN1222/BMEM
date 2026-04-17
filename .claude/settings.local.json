@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python src/experiments/debug_ema_backtest.py)"
+    ]
+  }
+}
