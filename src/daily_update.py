@@ -35,6 +35,8 @@ import re
 import sys
 import json
 import argparse
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime
 from pathlib import Path
 
@@ -393,6 +395,62 @@ def _update_stock_parquets(get_api, stock_ids: list, target_date: str) -> bool:
     return updated > 0
 
 
+# ─── EMAIL ───────────────────────────────────────────────────────────────────
+
+def _send_email(
+    target_date: str,
+    n_long: int,
+    n_short: int,
+    n_candidates: int,
+    output_path: Path,
+    top_long_text: str,
+) -> None:
+    """
+    Send the daily signals summary to MY_RECEIVER via Gmail SMTP,
+    attaching the output CSV.  Credentials are read from .env.
+    """
+    sender   = os.environ.get("MY_GMAIL")
+    password = os.environ.get("MY_GMAIL_APP_PASSWORD")
+    receiver = os.environ.get("My_RECEIVER")
+
+    if not all([sender, password, receiver]):
+        print("  [email] Missing email credentials in .env — skipping email.")
+        return
+
+    subject = f"BMEM Daily Signals — {target_date}"
+    body = (
+        f"BMEM Daily Update: {target_date}\n"
+        f"{'='*50}\n\n"
+        f"Candidates scored : {n_candidates}\n"
+        f"Long  signals (>={LONG_THRESHOLD:.0%})  : {n_long}\n"
+        f"Short signals (>={SHORT_THRESHOLD:.0%})  : {n_short}\n"
+    )
+    if top_long_text:
+        body += f"\nTop long candidates:\n{top_long_text}\n"
+
+    msg = EmailMessage()
+    msg["From"]    = sender
+    msg["To"]      = receiver
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    if output_path.exists():
+        msg.add_attachment(
+            output_path.read_bytes(),
+            maintype="text",
+            subtype="csv",
+            filename=output_path.name,
+        )
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(sender, password)
+            smtp.send_message(msg)
+        print(f"  [email] Summary sent to {receiver}")
+    except Exception as e:
+        print(f"  [email] Failed to send email: {e}")
+
+
 # ─── OUTPUT HELPERS ───────────────────────────────────────────────────────────
 
 def _build_output_row_order() -> list:
@@ -569,13 +627,24 @@ def run_daily_update(
     print(f"  Output CSV        : {output_path}")
     print(f"{'─'*60}\n")
 
+    top_long_text = ""
     if n_long > 0:
         top = out[out['signal_long']][
             ['date', 'stock_id', 'pred_prob_long', 'pred_prob_short']
         ].head(10)
+        top_long_text = top.to_string(index=False)
         print("  Top long candidates:")
-        print(top.to_string(index=False))
+        print(top_long_text)
         print()
+
+    _send_email(
+        target_date=target_date,
+        n_long=n_long,
+        n_short=n_short,
+        n_candidates=len(signals_df),
+        output_path=output_path,
+        top_long_text=top_long_text,
+    )
 
     return signals_df
 

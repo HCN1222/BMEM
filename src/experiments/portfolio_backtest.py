@@ -66,7 +66,7 @@ all_signal_stocks = set(df_eval['stock_id'].unique())
 kline_cache = {}
 
 for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
-    kline_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-04-16.parquet"
+    kline_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-04-17.parquet"
     if os.path.exists(kline_path):
         kdf = pd.read_parquet(kline_path)
         kdf['date'] = kdf['date'].astype(str).str[:10]
@@ -74,7 +74,7 @@ for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
         kline_cache[stock_id] = kdf
 
 df_0050 = None
-benchmark_path = "./data/stocks/0050_2021-06-30_to_2026-04-16.parquet"
+benchmark_path = "./data/stocks/0050_2021-06-30_to_2026-04-17.parquet"
 if os.path.exists(benchmark_path):
     df_0050 = pd.read_parquet(benchmark_path)
     df_0050['date'] = df_0050['date'].astype(str).str[:10]
@@ -182,7 +182,7 @@ def run_top_n_backtest(eval_df, n, long_threshold=0.6, short_threshold=0.6, trai
                     del current_holdings[stock_id]
 
             # [B-2] 做多模型檢查：買入與汰弱留強
-            long_candidates = today_preds[today_preds[long_prob_col] >= long_threshold].copy()
+            long_candidates = today_preds[today_preds[long_prob_col] >= long_threshold + 0.02].copy()
 
             for stock_id, holding in current_holdings.items():
                 if stock_id in long_candidates['stock_id'].values:

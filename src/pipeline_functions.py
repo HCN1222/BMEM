@@ -181,7 +181,7 @@ def compute_observation_features(
     """
     Compute HMM observation features (z_t, c_t, a_t, s_t, m_t) and EDA
     features (bias_60d, net_buy_amt_60d, cost_60d, …) for every row in the
-    combined broker × market-day skeleton.
+    combined broker x market-day skeleton.
 
     The caller must supply at least 60 trading-day rows of history per
     (stock_id, securities_trader_id) pair so that rolling normalizations
