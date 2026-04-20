@@ -3,6 +3,7 @@ import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import glob
 import os
 import sys
 from tqdm import tqdm
@@ -66,7 +67,8 @@ all_signal_stocks = set(df_eval['stock_id'].unique())
 kline_cache = {}
 
 for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
-    kline_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-04-17.parquet"
+    _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
+    kline_path = _matches[0] if _matches else ""
     if os.path.exists(kline_path):
         kdf = pd.read_parquet(kline_path)
         kdf['date'] = kdf['date'].astype(str).str[:10]
@@ -74,7 +76,8 @@ for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
         kline_cache[stock_id] = kdf
 
 df_0050 = None
-benchmark_path = "./data/stocks/0050_2021-06-30_to_2026-04-17.parquet"
+_bm_matches = glob.glob("./data/stocks/0050_2021-06-30_to_*.parquet")
+benchmark_path = _bm_matches[0] if _bm_matches else ""
 if os.path.exists(benchmark_path):
     df_0050 = pd.read_parquet(benchmark_path)
     df_0050['date'] = df_0050['date'].astype(str).str[:10]

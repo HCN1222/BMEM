@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import glob
 import os
 import sys
 from hmmlearn import hmm
@@ -109,7 +110,8 @@ return_records = []
 forward_indexer = FixedForwardWindowIndexer(window_size=10)
 
 for stock_id in tqdm(unique_stocks, desc="計算未來價格極值"):
-    file_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-02-11.parquet"
+    _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
+    file_path = _matches[0] if _matches else ""
     if os.path.exists(file_path):
         kdf = pd.read_parquet(file_path)
         kdf['date'] = kdf['date'].astype(str).str[:10]

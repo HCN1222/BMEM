@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, TextBox
+import glob
 import os
 import sys
 
@@ -36,7 +37,8 @@ state_colors = {state: cmap(i % 10) for i, state in enumerate(unique_states)}
 kline_cache = {}
 def get_kline_data(stock_id, date_str):
     if stock_id not in kline_cache:
-        file_path = f"./data/stocks/{stock_id}_2021-06-30_to_2026-02-11.parquet"
+        _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
+        file_path = _matches[0] if _matches else ""
         if os.path.exists(file_path):
             try:
                 kdf = pd.read_parquet(file_path)
