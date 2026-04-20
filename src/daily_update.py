@@ -36,6 +36,7 @@ import sys
 import json
 import argparse
 import smtplib
+import traceback
 from email.message import EmailMessage
 from datetime import datetime
 from pathlib import Path
@@ -399,42 +400,59 @@ def _update_stock_parquets(get_api, stock_ids: list, target_date: str) -> bool:
 
 def _send_email(
     target_date: str,
-    n_long: int,
-    n_short: int,
-    n_candidates: int,
-    output_path: Path,
-    top_long_text: str,
+    *,
+    error_msg: str | None = None,
+    n_long: int = 0,
+    n_short: int = 0,
+    n_candidates: int = 0,
+    output_path: Path | None = None,
+    top_long_text: str = "",
 ) -> None:
     """
-    Send the daily signals summary to MY_RECEIVER via Gmail SMTP,
-    attaching the output CSV.  Credentials are read from .env.
+    Send a daily update notification via Gmail SMTP.
+
+    Pass ``error_msg`` to send a failure notice; omit it for the normal
+    success summary (which also attaches the output CSV).
+    Credentials are read from .env.
     """
+    load_dotenv()
     sender   = os.environ.get("MY_GMAIL")
     password = os.environ.get("MY_GMAIL_APP_PASSWORD")
     receiver = os.environ.get("My_RECEIVER")
+    cc       = os.environ.get("MY_CC", "")
 
     if not all([sender, password, receiver]):
         print("  [email] Missing email credentials in .env — skipping email.")
         return
 
-    subject = f"BMEM Daily Signals — {target_date}"
-    body = (
-        f"BMEM Daily Update: {target_date}\n"
-        f"{'='*50}\n\n"
-        f"Candidates scored : {n_candidates}\n"
-        f"Long  signals (>={LONG_THRESHOLD:.0%})  : {n_long}\n"
-        f"Short signals (>={SHORT_THRESHOLD:.0%})  : {n_short}\n"
-    )
-    if top_long_text:
-        body += f"\nTop long candidates:\n{top_long_text}\n"
+    if error_msg:
+        subject = f"[FAILED] BMEM Daily Update — {target_date}"
+        body = (
+            f"BMEM Daily Update FAILED: {target_date}\n"
+            f"{'='*50}\n\n"
+            f"{error_msg}\n"
+        )
+    else:
+        subject = f"[OK] BMEM Daily Signals — {target_date}"
+        body = (
+            f"BMEM Daily Update: {target_date}\n"
+            f"{'='*50}\n\n"
+            f"Candidates scored : {n_candidates}\n"
+            f"Long  signals (>={LONG_THRESHOLD:.0%})  : {n_long}\n"
+            f"Short signals (>={SHORT_THRESHOLD:.0%})  : {n_short}\n"
+        )
+        if top_long_text:
+            body += f"\nTop long candidates:\n{top_long_text}\n"
 
     msg = EmailMessage()
     msg["From"]    = sender
     msg["To"]      = receiver
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     msg.set_content(body)
 
-    if output_path.exists():
+    if not error_msg and output_path is not None and output_path.exists():
         msg.add_attachment(
             output_path.read_bytes(),
             maintype="text",
@@ -446,7 +464,7 @@ def _send_email(
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
             smtp.login(sender, password)
             smtp.send_message(msg)
-        print(f"  [email] Summary sent to {receiver}")
+        print(f"  [email] Email sent to {receiver}")
     except Exception as e:
         print(f"  [email] Failed to send email: {e}")
 
@@ -516,13 +534,17 @@ def run_daily_update(
     all_broker = _load_all_broker_parquets(broker_id)
 
     if all_broker.empty:
-        print(f"  -> No broker data found. Nothing to score.")
+        msg = "No broker data found. Nothing to score."
+        print(f"  -> {msg}")
+        _send_email(target_date, error_msg=msg)
         return None
 
     today_broker = all_broker[all_broker['date'] == target_dt]
     if today_broker.empty:
-        print(f"  -> No broker activity on {target_date} "
-              f"(weekend / holiday / market closed). Nothing to score.")
+        msg = (f"No broker activity on {target_date} "
+               f"(weekend / holiday / market closed). Nothing to score.")
+        print(f"  -> {msg}")
+        _send_email(target_date, error_msg=msg)
         return None
 
     today_stock_ids = today_broker['stock_id'].astype(str).unique().tolist()
@@ -561,8 +583,10 @@ def run_daily_update(
     today_valid = valid_df[valid_df['date'] == target_dt]
 
     if today_valid.empty:
-        print(f"  -> No valid feature rows for {target_date}. "
-              f"Possibly insufficient history (need >=60 trading days). Exiting.")
+        msg = (f"No valid feature rows for {target_date}. "
+               f"Possibly insufficient history (need >=60 trading days).")
+        print(f"  -> {msg}")
+        _send_email(target_date, error_msg=msg)
         return None
 
     print(f"  -> {len(today_valid)} valid signal candidates for {target_date}")
@@ -675,11 +699,17 @@ def main():
     )
     args = parser.parse_args()
 
-    run_daily_update(
-        target_date=args.date,
-        broker_id=args.broker_id,
-        output_dir=Path(args.outdir),
-    )
+    try:
+        run_daily_update(
+            target_date=args.date,
+            broker_id=args.broker_id,
+            output_dir=Path(args.outdir),
+        )
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb)
+        _send_email(args.date, error_msg=tb)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -19,10 +19,14 @@
 param(
     [string]$Date     = (Get-Date -Format "yyyy-MM-dd"),
     [string]$BrokerId = "1440",
-    [string]$OutDir   = "./outputs/daily"
+    [string]$OutDir   = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+$RepoRoot = "C:\Users\hcn12\OneDrive\Desktop\NING\Github\BMEM"
+$Script   = "$RepoRoot\src\daily_update.py"
+if (-not $OutDir) { $OutDir = "$RepoRoot\outputs\daily" }
 
 Write-Host "=== BMEM Daily Update ==="
 Write-Host "  Target date : $Date"
@@ -30,7 +34,7 @@ Write-Host "  Broker ID   : $BrokerId"
 Write-Host "  Output dir  : $OutDir"
 Write-Host ""
 
-conda run -n BMEM --no-capture-output python ./src/daily_update.py `
+conda run -n BMEM --no-capture-output python $Script `
     --date      $Date `
     --broker-id $BrokerId `
     --outdir    $OutDir
