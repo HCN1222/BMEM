@@ -451,7 +451,7 @@ if len(top1_trades) > 0:
     
     # 確保輸出目錄存在
     os.makedirs('./outputs/reports', exist_ok=True)
-    csv_path = './outputs/reports/top1_trade_history.csv'
+    csv_path = './outputs/basktest/reports/top1_trade_history.csv'
     
     # 使用 utf-8-sig 編碼，避免在 Windows Excel 打開時中文變亂碼
     df_top1_trades.to_csv(csv_path, index=False, encoding='utf-8-sig')

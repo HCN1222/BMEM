@@ -10,9 +10,9 @@
 #
 # Prerequisites:
 #   - FINMIND_API_KEY set in .env (or as an environment variable)
-#   - Trained HMM params  : outputs/exp3/states_10/trained_hmm_params.npz
-#   - Trained XGBoost     : outputs/models/long/xgb_trading_model.json
-#                           outputs/models/short/xgb_trading_model.json
+#   - Trained HMM params  : outputs/models/HMM/trained_hmm_params.npz
+#   - Trained XGBoost     : outputs/models/XGBoost/long/xgb_trading_model.json
+#                           outputs/models/XGBoost/short/xgb_trading_model.json
 #   - Historical data     : data/brokers/1440/*.parquet
 #                           data/stocks/*.parquet
 
