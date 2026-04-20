@@ -8,8 +8,7 @@ import os
 import sys
 from tqdm import tqdm
 
-# 設定中文字體與負號顯示
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] 
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 print("1. 載入 XGBoost 雙模型與 Eval 測試資料...")
@@ -349,15 +348,15 @@ colors = ['#d62728', '#ff7f0e', '#2ca02c', '#9467bd', '#e377c2']
 # 繪製淨值曲線
 for i, n in enumerate(n_values):
     res = results[n]
-    ax1.plot(res['equity']['date'], res['equity']['equity'], color=colors[i], linewidth=2.0, 
-             label=f'XGB Top-{n} (總報酬: {res["ret"]*100:.2f}%)')
+    ax1.plot(res['equity']['date'], res['equity']['equity'], color=colors[i], linewidth=2.0,
+             label=f'XGB Top-{n} (Total Return: {res["ret"]*100:.2f}%)')
 
 if df_0050 is not None:
-    ax1.plot(df_0050_eq['date'], df_0050_eq['equity'], color='#1f77b4', linewidth=1.5, linestyle='--', 
-             alpha=0.8, label=f'0050 大盤 (總報酬: {benchmark_return*100:.2f}%)')
+    ax1.plot(df_0050_eq['date'], df_0050_eq['equity'], color='#1f77b4', linewidth=1.5, linestyle='--',
+             alpha=0.8, label=f'0050 Benchmark (Total Return: {benchmark_return*100:.2f}%)')
 
-ax1.set_title('XGBoost 雙向模型 (Top-N) 策略大對決 vs 0050', fontsize=16, fontweight='bold')
-ax1.set_ylabel('帳戶總淨值 (TWD)', fontsize=12)
+ax1.set_title('XGBoost Dual-Model (Top-N) Strategy Comparison vs 0050', fontsize=16, fontweight='bold')
+ax1.set_ylabel('Portfolio Equity (TWD)', fontsize=12)
 ax1.grid(True, linestyle='--', alpha=0.6)
 ax1.legend(loc='upper left', fontsize=11)
 ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
@@ -372,8 +371,8 @@ if df_0050 is not None:
     ax2.plot(df_0050_eq['date'], df_0050_eq['drawdown'] * 100, color='#1f77b4', linewidth=1.5, linestyle='--', 
              alpha=0.8, label=f'0050 MDD: {benchmark_mdd*100:.1f}%')
     
-ax2.set_ylabel('回撤比例 (%)', fontsize=12)
-ax2.set_xlabel('日期', fontsize=12)
+ax2.set_ylabel('Drawdown (%)', fontsize=12)
+ax2.set_xlabel('Date', fontsize=12)
 ax2.grid(True, linestyle='--', alpha=0.6)
 ax2.legend(loc='lower left', fontsize=10, ncol=2)
 ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
@@ -465,10 +464,10 @@ else:
 print("\n7. 執行 EMA 做多機率平滑策略對比 (Top-1, Top-3, Top-5)...")
 
 ema_variants = {
-    '原始 (無平滑)': 'pred_prob_long',
-    'EMA-3':         'pred_prob_long_ema3',
-    'EMA-5':         'pred_prob_long_ema5',
-    'EMA-10':        'pred_prob_long_ema10',
+    'No Smoothing': 'pred_prob_long',
+    'EMA-3':        'pred_prob_long_ema3',
+    'EMA-5':        'pred_prob_long_ema5',
+    'EMA-10':       'pred_prob_long_ema10',
 }
 ema_colors = ['#d62728', '#ff7f0e', '#2ca02c', '#9467bd']
 EMA_N_VALUES = [1, 3, 5]
@@ -497,15 +496,15 @@ for ema_n in EMA_N_VALUES:
         res = ema_all_results[(ema_n, label)]
         ax3.plot(res['equity']['date'], res['equity']['equity'],
                  color=ema_colors[i], linewidth=2.0,
-                 label=f'{label} (總報酬: {res["ret"]*100:.2f}%)')
+                 label=f'{label} (Total Return: {res["ret"]*100:.2f}%)')
 
     if df_0050 is not None:
         ax3.plot(df_0050_eq['date'], df_0050_eq['equity'],
                  color='#1f77b4', linewidth=1.5, linestyle='--', alpha=0.8,
-                 label=f'0050 大盤 (總報酬: {benchmark_return*100:.2f}%)')
+                 label=f'0050 Benchmark (Total Return: {benchmark_return*100:.2f}%)')
 
-    ax3.set_title(f'EMA 做多機率平滑策略對比 (Top-{ema_n}) vs 0050', fontsize=16, fontweight='bold')
-    ax3.set_ylabel('帳戶總淨值 (TWD)', fontsize=12)
+    ax3.set_title(f'Long Prob EMA Smoothing Comparison (Top-{ema_n}) vs 0050', fontsize=16, fontweight='bold')
+    ax3.set_ylabel('Portfolio Equity (TWD)', fontsize=12)
     ax3.grid(True, linestyle='--', alpha=0.6)
     ax3.legend(loc='upper left', fontsize=11)
     ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
@@ -521,8 +520,8 @@ for ema_n in EMA_N_VALUES:
                  color='#1f77b4', linewidth=1.5, linestyle='--', alpha=0.8,
                  label=f'0050 MDD: {benchmark_mdd*100:.1f}%')
 
-    ax4.set_ylabel('回撤比例 (%)', fontsize=12)
-    ax4.set_xlabel('日期', fontsize=12)
+    ax4.set_ylabel('Drawdown (%)', fontsize=12)
+    ax4.set_xlabel('Date', fontsize=12)
     ax4.grid(True, linestyle='--', alpha=0.6)
     ax4.legend(loc='lower left', fontsize=10, ncol=2)
     ax4.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
