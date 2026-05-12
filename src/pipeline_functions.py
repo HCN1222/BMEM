@@ -177,6 +177,7 @@ def compute_observation_features(
     broker_df: pd.DataFrame,
     stock_df: pd.DataFrame,
     disable_standardize: bool = True,
+    contamination_lookback_days: int | None = None,
 ) -> pd.DataFrame:
     """
     Compute HMM observation features (z_t, c_t, a_t, s_t, m_t) and EDA
@@ -201,6 +202,15 @@ def compute_observation_features(
     disable_standardize : if True, skip rolling Z-score (use raw ratios).
                           Default True — matches the training data produced by
                           preprocess.py --disable_standardize.
+    contamination_lookback_days : if set, only drop stocks whose zero/NaN close
+                          appears within the last N calendar days of available data
+                          (~60 trading days = 90 calendar days).  Stocks whose
+                          contamination is older than this window are kept because
+                          the bad rows have already rolled out of every 60-day
+                          feature window and cannot affect today's feature values.
+                          When None (default), any stock that ever had a zero or
+                          NaN close is dropped — the conservative behaviour used
+                          during training.
 
     Returns
     -------
@@ -224,8 +234,16 @@ def compute_observation_features(
     valid_stocks = max_vol[max_vol >= 10_000_000].index
     stock_df = stock_df[stock_df['stock_id'].isin(valid_stocks)]
 
-    # Drop stocks that ever had a 0 or NaN close (data contamination)
-    contaminated = stock_df[stock_df['close'].isin([0, np.nan])]['stock_id'].unique()
+    # Drop stocks with zero or NaN close prices (data contamination).
+    # When contamination_lookback_days is set, only flag stocks whose bad rows
+    # fall within the recent window; older contamination has rolled out of every
+    # 60-day feature window and is safe to ignore.
+    if contamination_lookback_days is not None:
+        check_cutoff = stock_df['date'].max() - pd.Timedelta(days=contamination_lookback_days)
+        check_df = stock_df[stock_df['date'] > check_cutoff]
+    else:
+        check_df = stock_df
+    contaminated = check_df[check_df['close'].isin([0, np.nan])]['stock_id'].unique()
     if len(contaminated):
         print(f"[compute_observation_features] Dropping {len(contaminated)} "
               f"contaminated stocks: {list(contaminated)}")

@@ -652,7 +652,8 @@ def run_daily_update(
     # ── 4. Compute observation features ───────────────────────────────────────
     print(f"\n[4/5] Computing observation features ...")
     feature_df = compute_observation_features(
-        combined_broker, combined_stocks, disable_standardize=True
+        combined_broker, combined_stocks, disable_standardize=True,
+        contamination_lookback_days=90,   # ~60 trading days; older zeros have rolled out
     )
     feature_df['date'] = pd.to_datetime(feature_df['date'])
 
