@@ -67,8 +67,9 @@ from pipeline_functions import (
 # ─── DEFAULT PATHS (relative to repo root) ───────────────────────────────────
 _ROOT = _SRC_DIR.parent
 
-BROKER_DIR     = _ROOT / "data" / "brokers"
-STOCK_DIR      = _ROOT / "data" / "stocks"
+BROKER_DIR       = _ROOT / "data" / "brokers"
+STOCK_DIR        = _ROOT / "data" / "stocks"
+STOCK_NAMES_FILE = STOCK_DIR / "stock_names.json"
 HMM_PARAMS     = _ROOT / "outputs" / "models" / "HMM" / "trained_hmm_params.npz"
 XGB_LONG_PATH  = _ROOT / "outputs" / "models" / "XGBoost" / "long"  / "xgb_trading_model.json"
 XGB_SHORT_PATH = _ROOT / "outputs" / "models" / "XGBoost" / "short" / "xgb_trading_model.json"
@@ -79,6 +80,8 @@ LOOKBACK_DAYS   = 130   # days of history loaded for rolling windows (>= 60 + bu
 HMM_WINDOW      = 120   # rolling Viterbi window (matches training)
 LONG_THRESHOLD  = 0.6   # matches portfolio_backtest.py LONG_PROB_THRESHOLD
 SHORT_THRESHOLD = 0.8   # matches portfolio_backtest.py SHORT_PROB_THRESHOLD
+OUTPUT_TOP_N    = 10    # stocks written to the daily output CSV
+OUTPUT_HIST_DAYS = 20   # trading-day lookback for the wide output
 
 
 # ─── HISTORY LOADERS ─────────────────────────────────────────────────────────
@@ -396,6 +399,41 @@ def _update_stock_parquets(get_api, stock_ids: list, target_date: str) -> bool:
     return updated > 0
 
 
+# ─── STOCK NAME LOOKUP ───────────────────────────────────────────────────────
+
+def _lookup_stock_names(get_api, stock_ids: list) -> dict:
+    """
+    Return a dict mapping stock_id -> stock_name for every id in stock_ids.
+
+    Names are read from STOCK_NAMES_FILE (data/stocks/stock_names.json).
+    Any ids not yet in the file are fetched via taiwan_stock_info() and the
+    file is updated in-place.  Unknown ids get an empty string fallback.
+    """
+    # Load existing cache
+    if STOCK_NAMES_FILE.exists():
+        cache: dict = json.loads(STOCK_NAMES_FILE.read_text(encoding='utf-8'))
+    else:
+        cache = {}
+
+    missing = [sid for sid in stock_ids if str(sid) not in cache]
+
+    if missing:
+        print(f"  [names] Fetching names for {len(missing)} unknown stock(s) ...")
+        try:
+            info_df = get_api().taiwan_stock_info()
+            info_df['stock_id'] = info_df['stock_id'].astype(str)
+            new_names = info_df.set_index('stock_id')['stock_name'].to_dict()
+            cache.update(new_names)
+            STOCK_NAMES_FILE.write_text(
+                json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8'
+            )
+            print(f"  [names] Cache updated -> {STOCK_NAMES_FILE.name} ({len(cache)} entries)")
+        except Exception as e:
+            print(f"  [names] Could not fetch stock info: {e}")
+
+    return {str(sid): cache.get(str(sid), "") for sid in stock_ids}
+
+
 # ─── EMAIL ───────────────────────────────────────────────────────────────────
 
 def _send_email(
@@ -406,10 +444,10 @@ def _send_email(
     n_short: int = 0,
     n_candidates: int = 0,
     output_path: Path | None = None,
-    top_long_text: str = "",
+    top_long_df: "pd.DataFrame | None" = None,
 ) -> None:
     """
-    Send a daily update notification via Gmail SMTP.
+    Send a daily update notification via Gmail SMTP (HTML body).
 
     Pass ``error_msg`` to send a failure notice; omit it for the normal
     success summary (which also attaches the output CSV).
@@ -426,23 +464,75 @@ def _send_email(
         return
 
     if error_msg:
-        subject = f"[FAILED] BMEM Daily Update — {target_date}"
-        body = (
-            f"BMEM Daily Update FAILED: {target_date}\n"
-            f"{'='*50}\n\n"
-            f"{error_msg}\n"
-        )
+        subject  = f"[FAILED] BMEM Daily Update — {target_date}"
+        body_txt = f"BMEM Daily Update FAILED: {target_date}\n{'='*50}\n\n{error_msg}\n"
+        body_html = f"""
+<html><body>
+<h2 style="color:#c0392b;">BMEM Daily Update FAILED — {target_date}</h2>
+<pre style="background:#f8f8f8;padding:12px;border-radius:4px;">{error_msg}</pre>
+</body></html>"""
     else:
         subject = f"[OK] BMEM Daily Signals — {target_date}"
-        body = (
-            f"BMEM Daily Update: {target_date}\n"
-            f"{'='*50}\n\n"
+
+        # Plain-text fallback
+        body_txt = (
+            f"BMEM Daily Update: {target_date}\n{'='*50}\n\n"
             f"Candidates scored : {n_candidates}\n"
             f"Long  signals (>={LONG_THRESHOLD:.0%})  : {n_long}\n"
             f"Short signals (>={SHORT_THRESHOLD:.0%})  : {n_short}\n"
         )
-        if top_long_text:
-            body += f"\nTop long candidates:\n{top_long_text}\n"
+        if top_long_df is not None and not top_long_df.empty:
+            body_txt += f"\nTop long candidates:\n{top_long_df.to_string(index=False)}\n"
+
+        # HTML table for top candidates
+        table_html = ""
+        if top_long_df is not None and not top_long_df.empty:
+            col_labels = {
+                'stock_id':       '代號',
+                'stock_name':     '名稱',
+                'pred_prob_long': 'Long 機率',
+                'pred_prob_short':'Short 機率',
+            }
+            header_cells = "".join(
+                f'<th style="padding:6px 12px;background:#2c3e50;color:#fff;'
+                f'text-align:center;">{col_labels.get(c, c)}</th>'
+                for c in top_long_df.columns
+            )
+            rows_html = ""
+            for i, row in top_long_df.iterrows():
+                bg = "#f2f2f2" if i % 2 == 0 else "#ffffff"
+                cells = ""
+                for c, v in row.items():
+                    if c in ('pred_prob_long', 'pred_prob_short'):
+                        cell_val = f"{v:.2%}"
+                    else:
+                        cell_val = str(v)
+                    cells += (
+                        f'<td style="padding:6px 12px;text-align:center;">'
+                        f'{cell_val}</td>'
+                    )
+                rows_html += f'<tr style="background:{bg};">{cells}</tr>'
+
+            table_html = f"""
+<h3>Top Long 候選股票</h3>
+<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;">
+  <thead><tr>{header_cells}</tr></thead>
+  <tbody>{rows_html}</tbody>
+</table>"""
+
+        body_html = f"""
+<html><body style="font-family:Arial,sans-serif;">
+<h2 style="color:#27ae60;">BMEM Daily Signals — {target_date}</h2>
+<table style="font-size:14px;margin-bottom:16px;">
+  <tr><td style="padding:4px 12px 4px 0;color:#555;">候選股票數</td>
+      <td><strong>{n_candidates}</strong></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#555;">Long 訊號 (&ge;{LONG_THRESHOLD:.0%})</td>
+      <td><strong style="color:#27ae60;">{n_long}</strong></td></tr>
+  <tr><td style="padding:4px 12px 4px 0;color:#555;">Short 訊號 (&ge;{SHORT_THRESHOLD:.0%})</td>
+      <td><strong style="color:#e74c3c;">{n_short}</strong></td></tr>
+</table>
+{table_html}
+</body></html>"""
 
     msg = EmailMessage()
     msg["From"]    = sender
@@ -450,7 +540,8 @@ def _send_email(
     if cc:
         msg["Cc"] = cc
     msg["Subject"] = subject
-    msg.set_content(body)
+    msg.set_content(body_txt)
+    msg.add_alternative(body_html, subtype="html")
 
     if not error_msg and output_path is not None and output_path.exists():
         msg.add_attachment(
@@ -467,20 +558,6 @@ def _send_email(
         print(f"  [email] Email sent to {receiver}")
     except Exception as e:
         print(f"  [email] Failed to send email: {e}")
-
-
-# ─── OUTPUT HELPERS ───────────────────────────────────────────────────────────
-
-def _build_output_row_order() -> list:
-    """Canonical column order for the output CSV."""
-    prob_cols = [f'prob_S{i}' for i in range(10)]
-    return (
-        ['date', 'stock_id', 'securities_trader_id']
-        + FEATURE_COLS
-        + ['bias_60d', 'net_buy_amt_60d']
-        + prob_cols
-        + ['pred_prob_long', 'pred_prob_short', 'signal_long', 'signal_short']
-    )
 
 
 # ─── MAIN PIPELINE ────────────────────────────────────────────────────────────
@@ -630,13 +707,48 @@ def run_daily_update(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"signals_{target_date}.csv"
 
-    ordered_cols = [c for c in _build_output_row_order() if c in signals_df.columns]
-    out = signals_df[ordered_cols].copy()
-    out['date'] = out['date'].astype(str).str[:10]
-    out = out.sort_values(
-        ['signal_long', 'pred_prob_long'],
-        ascending=[False, False],
-    ).reset_index(drop=True)
+    # Top-N stocks by today's long probability
+    top_stocks = (
+        signals_df.sort_values('pred_prob_long', ascending=False)
+        .head(OUTPUT_TOP_N)['stock_id'].astype(str).tolist()
+    )
+
+    # Last OUTPUT_HIST_DAYS trading dates from hmm_output
+    all_hmm_dates = sorted(hmm_output['date'].unique())
+    hist_dates = [d for d in all_hmm_dates if d <= target_dt][-OUTPUT_HIST_DAYS:]
+
+    hmm_hist = hmm_output[
+        hmm_output['date'].isin(hist_dates) &
+        hmm_output['stock_id'].astype(str).isin(top_stocks)
+    ].copy()
+
+    signals_hist = generate_signals(
+        hmm_hist, clf_long, clf_short,
+        feature_cols=XGB_FEATURE_COLS,
+        long_threshold=LONG_THRESHOLD,
+        short_threshold=SHORT_THRESHOLD,
+    )
+    signals_hist['stock_id'] = signals_hist['stock_id'].astype(str)
+    signals_hist['date_str'] = pd.to_datetime(signals_hist['date']).dt.strftime('%Y-%m-%d')
+
+    long_pivot = signals_hist.pivot(index='stock_id', columns='date_str', values='pred_prob_long')
+    long_pivot = long_pivot[sorted(long_pivot.columns, reverse=True)]
+    long_pivot.columns = [f"long_{c}" for c in long_pivot.columns]
+
+    short_pivot = signals_hist.pivot(index='stock_id', columns='date_str', values='pred_prob_short')
+    short_pivot = short_pivot[sorted(short_pivot.columns, reverse=True)]
+    short_pivot.columns = [f"short_{c}" for c in short_pivot.columns]
+
+    out = pd.concat([long_pivot, short_pivot], axis=1).reset_index()
+    today_long_col = f"long_{target_date}"
+    if today_long_col in out.columns:
+        out = out.sort_values(today_long_col, ascending=False)
+    out = out.reset_index(drop=True)
+
+    # Insert stock_name after stock_id
+    name_map = _lookup_stock_names(_get_api, out['stock_id'].tolist())
+    out.insert(1, 'stock_name', out['stock_id'].map(name_map))
+
     out.to_csv(output_path, index=False, encoding='utf-8-sig')
 
     # ── Summary ───────────────────────────────────────────────────────────────
@@ -651,15 +763,12 @@ def run_daily_update(
     print(f"  Output CSV        : {output_path}")
     print(f"{'─'*60}\n")
 
-    top_long_text = ""
-    if n_long > 0:
-        top = out[out['signal_long']][
-            ['date', 'stock_id', 'pred_prob_long', 'pred_prob_short']
-        ].head(10)
-        top_long_text = top.to_string(index=False)
-        print("  Top long candidates:")
-        print(top_long_text)
-        print()
+    top10_today = signals_df.sort_values('pred_prob_long', ascending=False).head(10).copy()
+    top10_today['stock_name'] = top10_today['stock_id'].astype(str).map(name_map)
+    top_long_df = top10_today[['stock_id', 'stock_name', 'pred_prob_long', 'pred_prob_short']].reset_index(drop=True)
+    print("  Top-10 long candidates:")
+    print(top_long_df.to_string(index=False))
+    print()
 
     _send_email(
         target_date=target_date,
@@ -667,7 +776,7 @@ def run_daily_update(
         n_short=n_short,
         n_candidates=len(signals_df),
         output_path=output_path,
-        top_long_text=top_long_text,
+        top_long_df=top_long_df,
     )
 
     return signals_df
