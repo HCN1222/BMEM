@@ -395,28 +395,37 @@ def _rolling_predict_proba(
     sequence_features: np.ndarray,
     model: hmm.GaussianHMM,
     window: int = 120,
-) -> np.ndarray:
+    target_indices: set | None = None,
+) -> tuple[np.ndarray, list]:
     """
     Rolling state posterior probabilities for a single continuous sequence.
 
     At time t, only the most recent `window` observations (inclusive) are
     used to infer the state — no future data leaks in.
 
+    Parameters
+    ----------
+    target_indices : if provided, only run predict_proba for these time-step
+                     indices (others are skipped). The full sequence is still
+                     available as rolling context.
+
     Returns
     -------
-    np.ndarray of shape (seq_len, n_components)
+    (probs, computed_indices)
+    probs            : np.ndarray of shape (len(computed_indices), n_components)
+    computed_indices : list of int, the t values that were actually computed
     """
-    seq_len     = len(sequence_features)
     n_components = model.n_components
-    probs = np.zeros((seq_len, n_components))
+    indices      = sorted(target_indices) if target_indices is not None else range(len(sequence_features))
 
-    for t in range(seq_len):
+    rows, computed = [], []
+    for t in indices:
         start_idx = max(0, t - window + 1)
         X_window  = sequence_features[start_idx : t + 1]
-        window_probs = model.predict_proba(X_window)
-        probs[t] = window_probs[-1]
+        rows.append(model.predict_proba(X_window)[-1])
+        computed.append(t)
 
-    return probs
+    return np.array(rows), computed
 
 
 def compute_rolling_hmm_proba(
@@ -425,6 +434,7 @@ def compute_rolling_hmm_proba(
     feature_cols: list = None,
     window: int = 120,
     show_progress: bool = True,
+    inference_dates=None,
 ) -> pd.DataFrame:
     """
     Compute rolling HMM state posterior probabilities for every row in df.
@@ -434,16 +444,22 @@ def compute_rolling_hmm_proba(
 
     Parameters
     ----------
-    df           : must be sorted by (stock_id, securities_trader_id, date)
-                   and must have no NaN in feature_cols
-    model        : loaded GaussianHMM from load_hmm_model()
-    feature_cols : list of observation feature column names (default: FEATURE_COLS)
-    window       : rolling window size in trading days (default: 120)
-    show_progress: show tqdm progress bar
+    df             : must be sorted by (stock_id, securities_trader_id, date)
+                     and must have no NaN in feature_cols
+    model          : loaded GaussianHMM from load_hmm_model()
+    feature_cols   : list of observation feature column names (default: FEATURE_COLS)
+    window         : rolling window size in trading days (default: 120)
+    show_progress  : show tqdm progress bar
+    inference_dates: if provided (list/set of dates), only run predict_proba for
+                     rows whose date falls in this set. The full group sequence is
+                     still used as rolling context so results are identical to a
+                     full run. The returned DataFrame contains only those rows.
+                     When None (default), all rows are computed and returned.
 
     Returns
     -------
-    df with added columns prob_S0 … prob_S{n_components-1}
+    Subset of df (rows matching inference_dates, or all rows when None) with
+    added columns prob_S0 … prob_S{n_components-1}.
     """
     if feature_cols is None:
         feature_cols = FEATURE_COLS
@@ -451,16 +467,33 @@ def compute_rolling_hmm_proba(
     n_components = model.n_components
     prob_cols    = [f'prob_S{i}' for i in range(n_components)]
 
+    filter_dates = (pd.DatetimeIndex(inference_dates).normalize()
+                    if inference_dates is not None else None)
+
     groups   = df.groupby(['stock_id', 'securities_trader_id'], sort=False)
     iterator = tqdm(groups, desc="HMM inference", total=len(groups)) if show_progress else groups
 
     result_parts = []
     for _, group in iterator:
-        probs   = _rolling_predict_proba(group[feature_cols].values, model, window=window)
-        prob_df = pd.DataFrame(probs, index=group.index, columns=prob_cols)
-        result_parts.append(prob_df)
+        if filter_dates is not None:
+            group_dates  = pd.to_datetime(group['date']).dt.normalize()
+            target_idx   = set(np.where(group_dates.isin(filter_dates))[0])
+        else:
+            target_idx = None
 
-    return df.join(pd.concat(result_parts))
+        probs, computed = _rolling_predict_proba(
+            group[feature_cols].values, model, window=window, target_indices=target_idx
+        )
+        kept_index = group.index[computed]
+        result_parts.append(pd.DataFrame(probs, index=kept_index, columns=prob_cols))
+
+    prob_df = pd.concat(result_parts)
+
+    if filter_dates is not None:
+        base = df[pd.to_datetime(df['date']).dt.normalize().isin(filter_dates)]
+    else:
+        base = df
+    return base.join(prob_df)
 
 
 # ─── XGBOOST INFERENCE ───────────────────────────────────────────────────────

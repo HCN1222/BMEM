@@ -903,12 +903,12 @@ def run_daily_update(
 
     hmm_model = load_hmm_model(str(HMM_PARAMS))
 
-    hmm_input  = valid_df.sort_values(['stock_id', 'securities_trader_id', 'date'])
-    hmm_output = compute_rolling_hmm_proba(
-        hmm_input, hmm_model, feature_cols=FEATURE_COLS, window=HMM_WINDOW
+    # Phase 1: all stocks × today only (1 predict_proba call per stock)
+    hmm_input = valid_df.sort_values(['stock_id', 'securities_trader_id', 'date'])
+    today_hmm = compute_rolling_hmm_proba(
+        hmm_input, hmm_model, feature_cols=FEATURE_COLS, window=HMM_WINDOW,
+        inference_dates=[target_dt],
     )
-
-    today_hmm = hmm_output[hmm_output['date'] == target_dt].copy()
     print(f"  -> State probabilities computed for {len(today_hmm)} rows")
 
     # ── 6. XGBoost signal generation ──────────────────────────────────────────
@@ -941,14 +941,16 @@ def run_daily_update(
         .head(OUTPUT_TOP_N)['stock_id'].astype(str).tolist()
     )
 
-    # Last OUTPUT_HIST_DAYS trading dates from hmm_output
-    all_hmm_dates = sorted(hmm_output['date'].unique())
-    hist_dates = [d for d in all_hmm_dates if d <= target_dt][-OUTPUT_HIST_DAYS:]
+    # Last OUTPUT_HIST_DAYS trading dates from valid_df
+    all_valid_dates = sorted(valid_df['date'].unique())
+    hist_dates = [d for d in all_valid_dates if d <= target_dt][-OUTPUT_HIST_DAYS:]
 
-    hmm_hist = hmm_output[
-        hmm_output['date'].isin(hist_dates) &
-        hmm_output['stock_id'].astype(str).isin(top_stocks)
-    ].copy()
+    # Phase 2: top-N stocks × last OUTPUT_HIST_DAYS dates (20 predict_proba calls per stock)
+    hist_input = hmm_input[hmm_input['stock_id'].astype(str).isin(top_stocks)]
+    hmm_hist = compute_rolling_hmm_proba(
+        hist_input, hmm_model, feature_cols=FEATURE_COLS, window=HMM_WINDOW,
+        inference_dates=hist_dates, show_progress=False,
+    )
 
     signals_hist = generate_signals(
         hmm_hist, clf_long, clf_short,
@@ -1025,15 +1027,15 @@ def run_daily_update(
 
     print(f"  -> {len(charts)} chart(s) generated")
 
-    _send_email(
-        target_date=target_date,
-        n_long=n_long,
-        n_short=n_short,
-        n_candidates=len(signals_df),
-        output_path=output_path,
-        top_long_df=top_long_df,
-        charts=charts,
-    )
+    # _send_email(
+    #     target_date=target_date,
+    #     n_long=n_long,
+    #     n_short=n_short,
+    #     n_candidates=len(signals_df),
+    #     output_path=output_path,
+    #     top_long_df=top_long_df,
+    #     charts=charts,
+    # )
 
     return signals_df
 
