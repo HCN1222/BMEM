@@ -37,9 +37,21 @@ import json
 import argparse
 import smtplib
 import traceback
-from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime
 from pathlib import Path
+
+import io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.patches as mpatches
+from matplotlib.patches import Rectangle
 
 import numpy as np
 import pandas as pd
@@ -434,6 +446,186 @@ def _lookup_stock_names(get_api, stock_ids: list) -> dict:
     return {str(sid): cache.get(str(sid), "") for sid in stock_ids}
 
 
+# ─── CHART GENERATION ────────────────────────────────────────────────────────
+
+_UP_C   = '#e74c3c'   # red   – Taiwan convention: price up / 買超
+_DOWN_C = '#27ae60'   # green – price down / 賣超
+
+
+def _generate_stock_chart(
+    sid: str,
+    stock_name: str,
+    ohlcv_df: pd.DataFrame,
+    broker_df: pd.DataFrame,
+    scores_df: pd.DataFrame,
+    display_window: int = 20,
+) -> bytes | None:
+    """
+    4-panel PNG for one stock.
+    ohlcv_df may contain more rows than display_window — MAs are computed on the
+    full history then only the last display_window candles are rendered.
+    Returns raw PNG bytes, or None on failure.
+    """
+    import matplotlib.font_manager as _fm
+
+    # Detect first available CJK-capable font; fall back to English labels if none
+    _cjk_font = next(
+        (f for f in ('Microsoft JhengHei', 'Microsoft YaHei', 'SimHei',
+                     'Noto Sans CJK TC', 'Arial Unicode MS')
+         if _fm.findfont(_fm.FontProperties(family=f), fallback_to_default=False)),
+        None,
+    )
+
+    try:
+        if ohlcv_df.empty or len(ohlcv_df) < 2:
+            return None
+
+        ohlcv_full = ohlcv_df.copy()
+        ohlcv_full.index = pd.to_datetime(ohlcv_full.index)
+        ohlcv_full = ohlcv_full.sort_index()
+
+        # Compute MAs on full history, then slice to display window
+        hi_col_full = 'max' if 'max' in ohlcv_full.columns else 'high'
+        lo_col_full = 'min' if 'min' in ohlcv_full.columns else 'low'
+        _ma_full = {}
+        for _p in (5, 10, 20, 60):
+            _ma_full[_p] = ohlcv_full['close'].rolling(_p, min_periods=1).mean()
+
+        # Slice to display window
+        ohlcv = ohlcv_full.iloc[-display_window:]
+        for _p in (5, 10, 20, 60):
+            _ma_full[_p] = _ma_full[_p].iloc[-display_window:]
+
+        # Only keep numeric broker columns so fill_value=0 doesn't touch str cols
+        _bcols = [c for c in ('buy', 'sell', 'net_buy', 'buy_amount', 'sell_amount', 'net_buy_amount')
+                  if c in broker_df.columns]
+        broker = broker_df[_bcols].reindex(ohlcv.index, fill_value=0)
+        scores = scores_df.reindex(ohlcv.index)
+
+        n = len(ohlcv)
+        x = np.arange(n)
+        date_labels = [d.strftime('%m/%d') for d in ohlcv.index]
+
+        _rc = ({'font.sans-serif': [_cjk_font, 'DejaVu Sans'],
+                'axes.unicode_minus': False}
+               if _cjk_font else {'axes.unicode_minus': False})
+
+        with matplotlib.rc_context(_rc):
+            # ── Figure: 4 panels ─────────────────────────────────────────────
+            fig = plt.figure(figsize=(12, 12), facecolor='white')
+            fig.suptitle(f'{sid}  {stock_name}', fontsize=13, fontweight='bold', y=0.99)
+            gs = gridspec.GridSpec(4, 1, height_ratios=[3, 1.5, 1.5, 1.5],
+                                   hspace=0.08, top=0.95, bottom=0.06)
+            ax0 = fig.add_subplot(gs[0])   # K線
+            ax1 = fig.add_subplot(gs[1])   # 淨買超
+            ax2 = fig.add_subplot(gs[2])   # 買入/賣出張數
+            ax3 = fig.add_subplot(gs[3])   # 模型分數
+
+            # ── Panel 0: Candlestick ─────────────────────────────────────────
+            for i in range(n):
+                o = ohlcv['open'].iat[i]
+                h = ohlcv[hi_col_full].iat[i]
+                l = ohlcv[lo_col_full].iat[i]
+                c = ohlcv['close'].iat[i]
+                color = _UP_C if c >= o else _DOWN_C
+                ax0.plot([i, i], [l, h], color=color, linewidth=1)
+                body_bot = min(o, c)
+                body_h   = max(abs(c - o), o * 0.001)
+                ax0.add_patch(Rectangle((i - 0.35, body_bot), 0.7, body_h,
+                                        facecolor=color, edgecolor=color))
+            # Moving averages (computed on full history, sliced to display window)
+            for period, color, lw in [(5, '#e67e22', 1.2), (10, '#8e44ad', 1.2), (20, '#2980b9', 1.2), (60, '#7f8c8d', 1.0)]:
+                ax0.plot(x, _ma_full[period].values, color=color, linewidth=lw, label=f'MA{period}')
+            ax0.legend(loc='upper left', fontsize=7, framealpha=0.6)
+
+            ax0.set_xlim(-0.5, n - 0.5)
+            ax0.set_xticks([])
+            ax0.set_ylabel('Price (TWD)', fontsize=8)
+            ax0.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+            ax0.grid(True, alpha=0.3, linestyle='--')
+
+            # ── Broker data ───────────────────────────────────────────────────
+            _nb  = broker['net_buy'].fillna(0)       if 'net_buy'        in broker.columns else pd.Series(0,   index=ohlcv.index)
+            _b   = broker['buy'].fillna(0)            if 'buy'            in broker.columns else pd.Series(0,   index=ohlcv.index)
+            _sl  = broker['sell'].fillna(0)           if 'sell'           in broker.columns else pd.Series(0,   index=ohlcv.index)
+            _ba  = broker['buy_amount'].fillna(0)     if 'buy_amount'     in broker.columns else pd.Series(0.0, index=ohlcv.index)
+            _sa  = broker['sell_amount'].fillna(0)    if 'sell_amount'    in broker.columns else pd.Series(0.0, index=ohlcv.index)
+
+            net_lots  = _nb / 1000
+            buy_lots  = _b  / 1000
+            sell_lots = _sl / 1000
+            avg_buy   = np.where(_b  > 0, _ba / _b,  0.0)
+            avg_sell  = np.where(_sl > 0, _sa / _sl, 0.0)
+
+            # ── Panel 1: 淨買超 (張) ─────────────────────────────────────────
+            lot_colors = [_UP_C if v >= 0 else _DOWN_C for v in net_lots]
+            ax1.bar(x, net_lots.values, color=lot_colors, alpha=0.85, width=0.6)
+            ax1.axhline(0, color='black', linewidth=0.7)
+            ax1.set_xlim(-0.5, n - 0.5)
+            ax1.set_xticks([])
+            ax1.set_ylabel('淨買超 (張)', fontsize=8)
+            ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+            ax1.grid(True, alpha=0.3, linestyle='--', axis='y')
+
+            # ── Panel 2: 買入/賣出張數 bar chart + 均價標示 ────────────────────
+            bar_w = 0.35
+            ax2.bar(x - bar_w / 2, buy_lots.values,  width=bar_w,
+                    color=_UP_C,   alpha=0.85, label='買入(張)')
+            ax2.bar(x + bar_w / 2, sell_lots.values, width=bar_w,
+                    color=_DOWN_C, alpha=0.85, label='賣出(張)')
+            ax2.axhline(0, color='black', linewidth=0.7)
+
+            # 均價標示 (小字，向右旋轉)
+            _ymax = max(buy_lots.max(), sell_lots.max(), 1)
+            _pad  = _ymax * 0.05
+            for i in range(n):
+                if buy_lots.iat[i] > 0 and avg_buy[i] > 0:
+                    ax2.text(i - bar_w / 2, buy_lots.iat[i] + _pad,
+                             f'{avg_buy[i]:,.0f}',
+                             ha='center', va='bottom', fontsize=5,
+                             color='#922b21', rotation=-90)
+                if sell_lots.iat[i] > 0 and avg_sell[i] > 0:
+                    ax2.text(i + bar_w / 2, sell_lots.iat[i] + _pad,
+                             f'{avg_sell[i]:,.0f}',
+                             ha='center', va='bottom', fontsize=5,
+                             color='#1a5276', rotation=-90)
+
+            ax2.set_xlim(-0.5, n - 0.5)
+            ax2.set_xticks([])
+            ax2.set_ylabel('張數', fontsize=8)
+            ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+            ax2.legend(loc='upper left', fontsize=7, framealpha=0.6)
+            ax2.grid(True, alpha=0.3, linestyle='--', axis='y')
+
+            # ── Panel 3: 模型分數 ────────────────────────────────────────────
+            prob_long  = scores['pred_prob_long'].copy()  if 'pred_prob_long'  in scores.columns else pd.Series(np.nan, index=ohlcv.index)
+            prob_short = scores['pred_prob_short'].copy() if 'pred_prob_short' in scores.columns else pd.Series(np.nan, index=ohlcv.index)
+
+            ax3.plot(x, prob_long.values,  color=_UP_C,   linewidth=2,
+                     label=f'Long  (>={LONG_THRESHOLD:.0%})')
+            ax3.plot(x, prob_short.values, color=_DOWN_C, linewidth=2,
+                     label=f'Short (>={SHORT_THRESHOLD:.0%})')
+            ax3.axhline(LONG_THRESHOLD,  color=_UP_C,   linestyle='--', alpha=0.45, linewidth=1)
+            ax3.axhline(SHORT_THRESHOLD, color=_DOWN_C, linestyle='--', alpha=0.45, linewidth=1)
+            ax3.set_xlim(-0.5, n - 0.5)
+            ax3.set_ylabel('Probability', fontsize=8)
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(date_labels, rotation=30, ha='right', fontsize=7)
+            ax3.grid(True, alpha=0.3, linestyle='--')
+            ax3.legend(loc='upper left', fontsize=7, framealpha=0.6)
+
+            # ── Export ───────────────────────────────────────────────────────
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=90, bbox_inches='tight', facecolor='white')
+            plt.close(fig)
+            buf.seek(0)
+            return buf.read()
+
+    except Exception as exc:
+        print(f"  [chart] {sid}: {exc}")
+        return None
+
+
 # ─── EMAIL ───────────────────────────────────────────────────────────────────
 
 def _send_email(
@@ -445,6 +637,7 @@ def _send_email(
     n_candidates: int = 0,
     output_path: Path | None = None,
     top_long_df: "pd.DataFrame | None" = None,
+    charts: "list[bytes] | None" = None,
 ) -> None:
     """
     Send a daily update notification via Gmail SMTP (HTML body).
@@ -520,6 +713,16 @@ def _send_email(
   <tbody>{rows_html}</tbody>
 </table>"""
 
+        # Build CID image tags (Gmail blocks data: URIs; CID inline works)
+        charts_html = ""
+        if charts:
+            charts_html = '<h3 style="margin-top:24px;">個股圖表 (K線 / 進出 / 分數)</h3>'
+            for i in range(len(charts)):
+                charts_html += (
+                    f'<img src="cid:chart_{i}" '
+                    f'style="width:100%;max-width:960px;display:block;margin:8px 0;" />'
+                )
+
         body_html = f"""
 <html><body style="font-family:Arial,sans-serif;">
 <h2 style="color:#27ae60;">BMEM Daily Signals — {target_date}</h2>
@@ -532,24 +735,48 @@ def _send_email(
       <td><strong style="color:#e74c3c;">{n_short}</strong></td></tr>
 </table>
 {table_html}
+{charts_html}
 </body></html>"""
 
-    msg = EmailMessage()
-    msg["From"]    = sender
-    msg["To"]      = receiver
+    # ── Assemble MIME structure ───────────────────────────────────────────────
+    # multipart/mixed
+    # ├── multipart/alternative
+    # │   ├── text/plain
+    # │   └── multipart/related   (only when charts present)
+    # │       ├── text/html
+    # │       └── image/png × N   (Content-ID: chart_i)
+    # └── text/csv (signals attachment)
+
+    msg = MIMEMultipart('mixed')
+    msg['From']    = sender
+    msg['To']      = receiver
     if cc:
-        msg["Cc"] = cc
-    msg["Subject"] = subject
-    msg.set_content(body_txt)
-    msg.add_alternative(body_html, subtype="html")
+        msg['Cc']  = cc
+    msg['Subject'] = subject
+
+    alt = MIMEMultipart('alternative')
+    alt.attach(MIMEText(body_txt, 'plain', 'utf-8'))
+
+    if not error_msg and charts:
+        related = MIMEMultipart('related')
+        related.attach(MIMEText(body_html, 'html', 'utf-8'))
+        for i, png_bytes in enumerate(charts):
+            img = MIMEImage(png_bytes, 'png')
+            img['Content-ID']          = f'<chart_{i}>'
+            img['Content-Disposition'] = 'inline'
+            related.attach(img)
+        alt.attach(related)
+    else:
+        alt.attach(MIMEText(body_html, 'html', 'utf-8'))
+
+    msg.attach(alt)
 
     if not error_msg and output_path is not None and output_path.exists():
-        msg.add_attachment(
-            output_path.read_bytes(),
-            maintype="text",
-            subtype="csv",
-            filename=output_path.name,
-        )
+        csv_part = MIMEBase('text', 'csv')
+        csv_part.set_payload(output_path.read_bytes())
+        encoders.encode_base64(csv_part)
+        csv_part['Content-Disposition'] = f'attachment; filename="{output_path.name}"'
+        msg.attach(csv_part)
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
@@ -771,6 +998,33 @@ def run_daily_update(
     print(top_long_df.to_string(index=False))
     print()
 
+    # ── 8. Generate per-stock charts ──────────────────────────────────────────
+    print("  Generating stock charts ...")
+    charts: list[bytes] = []
+    for sid in out['stock_id'].tolist():
+        # Full history for MA computation (up to LOOKBACK_DAYS); chart renders only last OUTPUT_HIST_DAYS candles
+        ohlcv_20d = combined_stocks[
+            combined_stocks['stock_id'].astype(str) == sid
+        ].set_index('date').sort_index()
+
+        broker_20d = combined_broker[
+            (combined_broker['stock_id'].astype(str) == sid) &
+            (combined_broker['date'].isin(hist_dates))
+        ].set_index('date').sort_index()
+
+        scores_20d = signals_hist[
+            signals_hist['stock_id'] == sid
+        ][['date', 'pred_prob_long', 'pred_prob_short']].set_index('date').sort_index()
+
+        png = _generate_stock_chart(
+            sid, name_map.get(sid, sid), ohlcv_20d, broker_20d, scores_20d,
+            display_window=OUTPUT_HIST_DAYS,
+        )
+        if png:
+            charts.append(png)
+
+    print(f"  -> {len(charts)} chart(s) generated")
+
     _send_email(
         target_date=target_date,
         n_long=n_long,
@@ -778,6 +1032,7 @@ def run_daily_update(
         n_candidates=len(signals_df),
         output_path=output_path,
         top_long_df=top_long_df,
+        charts=charts,
     )
 
     return signals_df
