@@ -1027,15 +1027,15 @@ def run_daily_update(
 
     print(f"  -> {len(charts)} chart(s) generated")
 
-    # _send_email(
-    #     target_date=target_date,
-    #     n_long=n_long,
-    #     n_short=n_short,
-    #     n_candidates=len(signals_df),
-    #     output_path=output_path,
-    #     top_long_df=top_long_df,
-    #     charts=charts,
-    # )
+    _send_email(
+        target_date=target_date,
+        n_long=n_long,
+        n_short=n_short,
+        n_candidates=len(signals_df),
+        output_path=output_path,
+        top_long_df=top_long_df,
+        charts=charts,
+    )
 
     return signals_df
 
