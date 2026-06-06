@@ -1,3 +1,4 @@
+import argparse
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -10,12 +11,18 @@ import sys
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] 
 plt.rcParams['axes.unicode_minus'] = False
 
+# ARGPARSE Setup
+parser = argparse.ArgumentParser(description='Train XGBoost Model')
+parser.add_argument('--train_path', type=str, default='./data/preprocessed_data/xgb_dataset_short_train.parquet', help='Path to training data')
+parser.add_argument('--eval_path', type=str, default='./data/preprocessed_data/xgb_dataset_short_eval.parquet', help='Path to evaluation data')
+args = parser.parse_args()
+
 print("1. 載入並切分 XGBoost 資料集 (Train / Val / Test)...")
 # ==========================================
 # 1. 載入資料與時間序列切分
 # ==========================================
-train_path = './data/preprocessed_data/xgb_dataset_short_train.parquet'
-eval_path = './data/preprocessed_data/xgb_dataset_short_eval.parquet'
+train_path = args.train_path
+eval_path = args.eval_path
 
 try:
     # 讀取完整資料
