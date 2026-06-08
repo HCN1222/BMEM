@@ -1,0 +1,2 @@
+五個特徵: [z_t, r_t, a_t, s_t, m_t]
+沒有做 60日 window rolling standardization
