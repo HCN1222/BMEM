@@ -82,9 +82,9 @@ _ROOT = _SRC_DIR.parent
 BROKER_DIR       = _ROOT / "data" / "brokers"
 STOCK_DIR        = _ROOT / "data" / "stocks"
 STOCK_NAMES_FILE = STOCK_DIR / "stock_names.json"
-HMM_PARAMS     = _ROOT / "outputs" / "models" / "HMM" / "trained_hmm_params.npz"
-XGB_LONG_PATH  = _ROOT / "outputs" / "models" / "XGBoost" / "long"  / "xgb_trading_model.json"
-XGB_SHORT_PATH = _ROOT / "outputs" / "models" / "XGBoost" / "short" / "xgb_trading_model.json"
+HMM_PARAMS     = _ROOT / "outputs" / "1440" / "models" / "HMM" / "trained_hmm_params.npz"
+XGB_LONG_PATH  = _ROOT / "outputs" / "1440" / "models" / "XGBoost" / "long"  / "xgb_trading_model.json"
+XGB_SHORT_PATH = _ROOT / "outputs" / "1440" / "models" / "XGBoost" / "short" / "xgb_trading_model.json"
 DEFAULT_OUTDIR = _ROOT / "outputs" / "daily"
 
 # ─── PIPELINE PARAMETERS ─────────────────────────────────────────────────────
