@@ -15,25 +15,24 @@ print("1. 載入 XGBoost 雙模型與 Eval 測試資料...")
 # ==========================================
 # 1. 載入模型與準備資料
 # ==========================================
-eval_path = './data/preprocessed_data/xgb_dataset_long_eval.parquet'
-model_long_path = './outputs/models/XGBoost/long/xgb_trading_model.json'
-model_short_path = './outputs/models/XGBoost/short/xgb_trading_model.json' 
+eval_path = './data/preprocessed_data/xgb_dataset_long_test.parquet'
+model_long_path = './outputs/models/xgb_trading_model_long.json'
+model_short_path = './outputs/models/xgb_trading_model_short.json'
 
 try:
     df_eval = pd.read_parquet(eval_path)
-    
-    # 載入做多模型
+
     clf_long = xgb.XGBClassifier()
     clf_long.load_model(model_long_path)
-    
-    # 載入做空模型
+
     clf_short = xgb.XGBClassifier()
     clf_short.load_model(model_short_path)
 except Exception as e:
     print(f"檔案讀取失敗: {e}")
     sys.exit()
 
-prob_cols = [f'prob_S{i}' for i in range(10)]
+n_hmm_states = sum(1 for c in df_eval.columns if c.startswith('prob_S'))
+prob_cols = [f'prob_S{i}' for i in range(n_hmm_states)]
 feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'] + prob_cols
 
 # XGBoost 預測雙向機率
@@ -86,7 +85,7 @@ if os.path.exists(benchmark_path):
     SPLIT_DATE = '2025-06-18' 
     if SPLIT_DATE in df_0050.index or df_0050.index.max() >= SPLIT_DATE:
         df_0050.loc[df_0050.index >= SPLIT_DATE, 'close'] *= 4
-    print("✅ 成功載入 0050 作為大盤基準線。")
+    print("成功載入 0050 作為大盤基準線。")
 
 # ==========================================
 # 3. 共用回測引擎函數 (新增買賣價格與模型機率紀錄)
@@ -435,7 +434,7 @@ row_win_rate += f" {'N/A':>10}"
 print(row_win_rate)
 
 print("="*85)
-print(f"✅ 圖表已成功儲存至: {save_path}")
+print(f"圖表已成功儲存至: {save_path}")
 
 # ==========================================
 # 6. 輸出 Top-1 交易明細至 CSV
@@ -449,14 +448,13 @@ if len(top1_trades) > 0:
     df_top1_trades = pd.DataFrame(top1_trades)
     
     # 確保輸出目錄存在
-    os.makedirs('./outputs/reports', exist_ok=True)
+    os.makedirs('./outputs/backtest/reports', exist_ok=True)
     csv_path = './outputs/backtest/reports/top1_trade_history.csv'
-    
-    # 使用 utf-8-sig 編碼，避免在 Windows Excel 打開時中文變亂碼
+
     df_top1_trades.to_csv(csv_path, index=False, encoding='utf-8-sig')
-    print(f"✅ Top-1 交易明細已成功儲存至: {csv_path}")
+    print(f"Top-1 交易明細已成功儲存至: {csv_path}")
 else:
-    print("⚠️ Top-1 策略在此期間內沒有任何交易紀錄。")
+    print("Top-1 策略在此期間內沒有任何交易紀錄。")
 
 # ==========================================
 # 7. EMA 平滑做多機率 對比回測 (Top-1, Top-3, Top-5)
@@ -530,7 +528,7 @@ for ema_n in EMA_N_VALUES:
     plt.tight_layout()
     ema_save_path = f'./outputs/backtest/equity_curve_ema_long_top{ema_n}_comparison.png'
     plt.savefig(ema_save_path, dpi=300)
-    print(f"   ✅ Top-{ema_n} 圖表已儲存至: {ema_save_path}")
+    print(f"   Top-{ema_n} 圖表已儲存至: {ema_save_path}")
     plt.close(fig2)
 
 # 輸出 EMA 對比表格 (每個 Top-N 一個區塊)
