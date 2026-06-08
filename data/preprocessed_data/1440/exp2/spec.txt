@@ -1,0 +1,6 @@
+- remove r_t, replace with c_t (price-flow alignment)
+- feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t']
+
+However, the c_t E (-1, 0, 1), which only represents samedirection or not
+This caused confusion for the model.
+Therefore, in exp3, I will let the domain of c_t be (-2, -1, 0, 1, 2).

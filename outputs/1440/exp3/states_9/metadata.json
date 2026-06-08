@@ -1,0 +1,20 @@
+{
+  "input_file": "./data/preprocessed_data/hmm_data_train.npz",
+  "outdir": "outputs\\result_20260326_221706\\states_9",
+  "iterations": 120,
+  "n_states": 9,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_total_timesteps": 951068,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 85,
+  "final_log_likelihood": 16996936.8831197
+}
