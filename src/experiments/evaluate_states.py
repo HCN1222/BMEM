@@ -141,10 +141,10 @@ def main():
     plt.close()
 
     print("\n" + "="*60)
-    print(f"🎉 All models saved successfully!")
-    print(f"📁 Master Directory: {eval_master_dir}")
-    print(f"📉 BIC Chart saved at: {bic_plot_path}")
-    print(f"⭐ Optimal States Selected (Lowest BIC): {best_n}")
+    print(f"All models saved successfully!")
+    print(f"Master Directory: {eval_master_dir}")
+    print(f"BIC Chart saved at: {bic_plot_path}")
+    print(f"Optimal States Selected (Lowest BIC): {best_n}")
     print("="*60)
 
 if __name__ == "__main__":

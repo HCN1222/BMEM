@@ -7,35 +7,47 @@ from hmmlearn import hmm
 from pandas.api.indexers import FixedForwardWindowIndexer
 from tqdm import tqdm
 
-# 開啟 Pandas 對齊全形中文字的支援
 pd.set_option('display.unicode.east_asian_width', True)
+
+# ==========================================
+# 時間切點 (與設計文件一致)
+# Train:  2021 ~ 2023-12-31
+# Val:    2024-01-01 ~ 2024-12-31
+# Test:   2025-01-01+  (封存回測集，從不參與訓練)
+# ==========================================
+TRAIN_END  = '2023-12-31'
+VAL_START  = '2024-01-01'
+VAL_END    = '2024-12-31'
+TEST_START = '2025-01-01'
 
 print("1. 正在載入資料與重建 HMM 模型...")
 # ==========================================
-# 1. 載入原始特徵與 HMM 模型
+# 1. 載入全部序列 (train + eval 合併，以取得所有日期的資料)
 # ==========================================
-train_parquet_path = './data/preprocessed_data/exp3/final_vectors_train.parquet'
-eval_parquet_path = './data/preprocessed_data/exp3/final_vectors_eval.parquet'
-hmm_params_path = './outputs/exp3/states_10/trained_hmm_params.npz'
+train_parquet_path = './data/preprocessed_data/exp4/final_vectors_train.parquet'
+eval_parquet_path  = './data/preprocessed_data/exp4/final_vectors_eval.parquet'
+hmm_params_path    = './outputs/exp5/result_20260607_194920/states_6/trained_hmm_params.npz'
 
 try:
-    df_train = pd.read_parquet(train_parquet_path)
-    df_eval = pd.read_parquet(eval_parquet_path)
+    df_part1   = pd.read_parquet(train_parquet_path)
+    df_part2   = pd.read_parquet(eval_parquet_path)
     hmm_params = np.load(hmm_params_path)
 except Exception as e:
     print(f"檔案讀取失敗: {e}")
     sys.exit()
 
-df_train['date'] = df_train['date'].astype(str).str[:10]
-df_eval['date'] = df_eval['date'].astype(str).str[:10]
+# 合併全部序列
+df_all_raw = pd.concat([df_part1, df_part2], ignore_index=True)
+df_all_raw['date'] = df_all_raw['date'].astype(str).str[:10]
+print(f"合併後總資料筆數: {len(df_all_raw):,}")
 
 feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t']
 
-# 解析模型參數並重建模型 (為了 Eval 的滾動機率)
-startprob = hmm_params['startprob']
-transmat = hmm_params['transmat']
-means = hmm_params['means']
-covars = hmm_params['covars']
+# 解析模型參數並重建 HMM 模型
+startprob    = hmm_params['startprob']
+transmat     = hmm_params['transmat']
+means        = hmm_params['means']
+covars       = hmm_params['covars']
 n_components = means.shape[0]
 
 if len(covars.shape) == 3:
@@ -45,7 +57,6 @@ elif len(covars.shape) == 2:
 else:
     covar_type = "spherical"
 
-# 修復浮點數誤差，確保共變異數矩陣對稱且正定 (避免 ValueError)
 if covar_type == "full":
     for i in range(n_components):
         covars[i] = (covars[i] + covars[i].T) / 2
@@ -55,28 +66,17 @@ elif covar_type == "diag":
 
 model = hmm.GaussianHMM(n_components=n_components, covariance_type=covar_type)
 model.startprob_ = startprob
-model.transmat_ = transmat
-model.means_ = means
-model.covars_ = covars
+model.transmat_  = transmat
+model.means_     = means
+model.covars_    = covars
 model.n_features = len(feature_cols)
 
-print("2. 正在提取 Train 的 HMM 狀態機率...")
-# ==========================================
-# 2. 處理 Train Set 機率 (直接讀取)
-# ==========================================
-posterior_probs_train = hmm_params['posterior_probabilities']
-if len(df_train) != len(posterior_probs_train):
-    min_len = min(len(df_train), len(posterior_probs_train))
-    df_train = df_train.iloc[-min_len:].reset_index(drop=True)
-    posterior_probs_train = posterior_probs_train[-min_len:]
-
 prob_cols = [f'prob_S{i}' for i in range(n_components)]
-prob_df_train = pd.DataFrame(posterior_probs_train, columns=prob_cols)
-df_train = pd.concat([df_train, prob_df_train], axis=1)
+print(f"HMM 重建完成: {n_components} states, covariance={covar_type}")
 
-print("3. 正在計算 Eval 的無未來函數滾動狀態機率 (Rolling Proba)...")
+print("2. 對全部序列進行滾動狀態機率計算 (Rolling Proba，防止未來函數)...")
 # ==========================================
-# 3. 處理 Eval Set 機率 (Rolling 防止未來函數)
+# 2. 全部序列使用 rolling_predict_proba，確保無未來函數
 # ==========================================
 def rolling_predict_proba(sequence_features, hmm_model, window=120):
     seq_len = len(sequence_features)
@@ -88,24 +88,20 @@ def rolling_predict_proba(sequence_features, hmm_model, window=120):
         probs[t] = window_probs[-1]
     return probs
 
-eval_probs_list = []
-grouped_eval = df_eval.groupby('sequence_id')
-for seq_id, group in tqdm(grouped_eval, desc="Eval 滾動機率", total=len(grouped_eval)):
+all_probs_list = []
+grouped = df_all_raw.groupby('sequence_id', sort=False)
+for seq_id, group in tqdm(grouped, desc="Rolling 機率", total=len(grouped)):
     p = rolling_predict_proba(group[feature_cols].values, model, window=120)
-    eval_probs_list.append(pd.DataFrame(p, index=group.index, columns=prob_cols))
+    all_probs_list.append(pd.DataFrame(p, index=group.index, columns=prob_cols))
 
-prob_df_eval = pd.concat(eval_probs_list)
-df_eval = pd.concat([df_eval, prob_df_eval], axis=1)
+prob_df_all = pd.concat(all_probs_list)
+df_all_raw = pd.concat([df_all_raw, prob_df_all], axis=1)
 
-print("4. 正在計算衍生特徵與實戰標籤 (做多與做空 Target Y)...")
+print("3. 正在計算未來 2 週價格極值與實戰標籤...")
 # ==========================================
-# 4. 合併資料以批次計算 Target Y (乖離率已在 preprocess 算完)
+# 3. 計算 Target Y (做多 / 做空)
 # ==========================================
-df_train['is_eval'] = False
-df_eval['is_eval'] = True
-df_all = pd.concat([df_train, df_eval], ignore_index=True)
-
-unique_stocks = df_all['stock_id'].unique()
+unique_stocks = df_all_raw['stock_id'].unique()
 return_records = []
 forward_indexer = FixedForwardWindowIndexer(window_size=10)
 
@@ -116,76 +112,61 @@ for stock_id in tqdm(unique_stocks, desc="計算未來價格極值"):
         kdf = pd.read_parquet(file_path)
         kdf['date'] = kdf['date'].astype(str).str[:10]
         kdf = kdf.sort_values('date')
-        
-        # 處理 0050 於 6/18 之後的價格調整 (乘以 4)
+
         if str(stock_id) == '0050':
-            split_mask = kdf['date'] >= '2025-06-18' 
+            split_mask = kdf['date'] >= '2025-06-18'
             kdf.loc[split_mask, ['close', 'max', 'min']] *= 4
 
         kdf['future_2w_high'] = kdf['max'].shift(-1).rolling(window=forward_indexer, min_periods=1).max()
         kdf['future_2w_low']  = kdf['min'].shift(-1).rolling(window=forward_indexer, min_periods=1).min()
-        
+
         kdf['high_ret'] = kdf['future_2w_high'] / kdf['close'] - 1
         kdf['low_ret']  = kdf['future_2w_low'] / kdf['close'] - 1
-        
+
         temp_df = kdf[['date', 'high_ret', 'low_ret']].copy()
         temp_df['stock_id'] = str(stock_id)
         return_records.append(temp_df)
 
 all_returns = pd.concat(return_records, ignore_index=True)
-df_all['stock_id'] = df_all['stock_id'].astype(str)
-df_all = pd.merge(df_all, all_returns, on=['stock_id', 'date'], how='left')
-
-# 移除無法計算標籤的尾端資料
+df_all_raw['stock_id'] = df_all_raw['stock_id'].astype(str)
+df_all = pd.merge(df_all_raw, all_returns, on=['stock_id', 'date'], how='left')
 df_all = df_all.dropna(subset=['high_ret', 'low_ret'])
 
-# 目標 1 (做多策略)：獲利達到 10% 且 過程中未觸發 10% 停損 (即跌幅 > -10%)
-df_all['target_y_long'] = ((df_all['high_ret'] >= 0.10) & (df_all['low_ret'] > -0.10)).astype(int)
-
-# 目標 2 (做空策略)：最大跌幅達到 10% (low_ret <= -0.10) 且 過程中未觸發 10% 停損 (即最大漲幅 < 10%)
+df_all['target_y_long']  = ((df_all['high_ret'] >= 0.10) & (df_all['low_ret'] > -0.10)).astype(int)
 df_all['target_y_short'] = ((df_all['low_ret'] <= -0.10) & (df_all['high_ret'] < 0.10)).astype(int)
 
-print("5. 正在切分並儲存 XGBoost 專用資料集 (分別輸出 Long 與 Short)...")
+print("4. 按日期切分並儲存三份資料集 (Train / Val / Test)...")
 # ==========================================
-# 5. 切分 Train/Eval 並存檔
+# 4. 按時間切分：Train / Val / Test
 # ==========================================
-# 基礎欄位 (不包含標籤)
-base_cols = [ 
-    'date', 'stock_id', 'securities_trader_id', 'sequence_id', 
+base_cols = [
+    'date', 'stock_id', 'securities_trader_id', 'sequence_id',
     'net_buy_amt_60d', 'bias_60d'
 ] + feature_cols + prob_cols
 
-final_train = df_all[~df_all['is_eval']].copy()
-final_eval = df_all[df_all['is_eval']].copy()
+df_train_period = df_all[df_all['date'] <= TRAIN_END].copy()
+df_val_period   = df_all[(df_all['date'] >= VAL_START) & (df_all['date'] <= VAL_END)].copy()
+df_test_period  = df_all[df_all['date'] >= TEST_START].copy()
 
-# 定義輸出路徑
-train_long_out_path = './data/preprocessed_data/xgb_dataset_long_train.parquet'
-eval_long_out_path = './data/preprocessed_data/xgb_dataset_long_eval.parquet'
+print(f"\n切分結果:")
+print(f"  Train (2021 ~ {TRAIN_END}): {len(df_train_period):,} 筆")
+print(f"  Val   ({VAL_START} ~ {VAL_END}): {len(df_val_period):,} 筆")
+print(f"  Test  ({TEST_START}+): {len(df_test_period):,} 筆")
 
-train_short_out_path = './data/preprocessed_data/xgb_dataset_short_train.parquet'
-eval_short_out_path = './data/preprocessed_data/xgb_dataset_short_eval.parquet'
+os.makedirs('./data/preprocessed_data', exist_ok=True)
 
-# === 處理做多資料集 ===
-# 將 target_y_long 重新命名為 target_y，方便 XGBoost 直接訓練
-df_long_train = final_train[base_cols + ['target_y_long']].rename(columns={'target_y_long': 'target_y'})
-df_long_eval = final_eval[base_cols + ['target_y_long']].rename(columns={'target_y_long': 'target_y'})
+for mode, target_col in [('long', 'target_y_long'), ('short', 'target_y_short')]:
+    df_tr = df_train_period[base_cols + [target_col]].rename(columns={target_col: 'target_y'})
+    df_va = df_val_period[base_cols + [target_col]].rename(columns={target_col: 'target_y'})
+    df_te = df_test_period[base_cols + [target_col]].rename(columns={target_col: 'target_y'})
 
-df_long_train.to_parquet(train_long_out_path, index=False)
-df_long_eval.to_parquet(eval_long_out_path, index=False)
+    df_tr.to_parquet(f'./data/preprocessed_data/xgb_dataset_{mode}_train.parquet', index=False)
+    df_va.to_parquet(f'./data/preprocessed_data/xgb_dataset_{mode}_val.parquet',   index=False)
+    df_te.to_parquet(f'./data/preprocessed_data/xgb_dataset_{mode}_test.parquet',  index=False)
 
-# === 處理做空資料集 ===
-# 將 target_y_short 重新命名為 target_y
-df_short_train = final_train[base_cols + ['target_y_short']].rename(columns={'target_y_short': 'target_y'})
-df_short_eval = final_eval[base_cols + ['target_y_short']].rename(columns={'target_y_short': 'target_y'})
+    print(f"\n[{mode}]")
+    print(f"  Train: {len(df_tr):,} | Base rate: {df_tr['target_y'].mean()*100:.2f}%")
+    print(f"  Val  : {len(df_va):,} | Base rate: {df_va['target_y'].mean()*100:.2f}%")
+    print(f"  Test : {len(df_te):,} | Base rate: {df_te['target_y'].mean()*100:.2f}%")
 
-df_short_train.to_parquet(train_short_out_path, index=False)
-df_short_eval.to_parquet(eval_short_out_path, index=False)
-
-# 輸出結果統計
-print(f"✅ XGBoost [做多] 訓練資料集已儲存: {train_long_out_path}")
-print(f"✅ XGBoost [做多] 驗證資料集已儲存: {eval_long_out_path}")
-print(f"   [做多] 全局基礎勝率 (Base Rate) Train: {df_long_train['target_y'].mean()*100:.2f}% | Eval: {df_long_eval['target_y'].mean()*100:.2f}%\n")
-
-print(f"✅ XGBoost [做空] 訓練資料集已儲存: {train_short_out_path}")
-print(f"✅ XGBoost [做空] 驗證資料集已儲存: {eval_short_out_path}")
-print(f"   [做空] 全局基礎勝率 (Base Rate) Train: {df_short_train['target_y'].mean()*100:.2f}% | Eval: {df_short_eval['target_y'].mean()*100:.2f}%")
+print("\n完成！三份資料集已按正確時間切分儲存。")

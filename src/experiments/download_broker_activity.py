@@ -49,7 +49,7 @@ def main():
     token = os.environ["FINMIND_API_KEY"]
 
     outdir = Path(f"{args.outdir}/{args.trader_id}")
-    outdir.mkdir(parents=True, exist_ok=False)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     api = DataLoader()
     api.login_by_token(api_token=token)
