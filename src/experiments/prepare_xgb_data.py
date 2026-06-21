@@ -19,6 +19,7 @@ TRAIN_END  = '2023-12-31'
 VAL_START  = '2024-01-01'
 VAL_END    = '2024-12-31'
 TEST_START = '2025-01-01'
+TEST_END   = '2026-05-31'
 
 print("1. 正在載入資料與重建 HMM 模型...")
 # ==========================================
@@ -146,12 +147,12 @@ base_cols = [
 
 df_train_period = df_all[df_all['date'] <= TRAIN_END].copy()
 df_val_period   = df_all[(df_all['date'] >= VAL_START) & (df_all['date'] <= VAL_END)].copy()
-df_test_period  = df_all[df_all['date'] >= TEST_START].copy()
+df_test_period  = df_all[(df_all['date'] >= TEST_START) & (df_all['date'] <= TEST_END)].copy()
 
 print(f"\n切分結果:")
 print(f"  Train (2021 ~ {TRAIN_END}): {len(df_train_period):,} 筆")
 print(f"  Val   ({VAL_START} ~ {VAL_END}): {len(df_val_period):,} 筆")
-print(f"  Test  ({TEST_START}+): {len(df_test_period):,} 筆")
+print(f"  Test  ({TEST_START} ~ {TEST_END}): {len(df_test_period):,} 筆")
 
 os.makedirs('./data/preprocessed_data', exist_ok=True)
 
