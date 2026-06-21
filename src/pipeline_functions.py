@@ -18,11 +18,9 @@ from tqdm import tqdm
 
 FEATURE_COLS = ['z_t', 'c_t', 'a_t', 's_t', 'm_t']
 
-# XGBoost expects exactly these 17 columns (must match training order)
-XGB_FEATURE_COLS = (
-    ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d']
-    + [f'prob_S{i}' for i in range(10)]
-)
+XGB_BASE_FEATURE_COLS = [
+    'z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'
+]
 
 
 # ─── DATA FETCHING ───────────────────────────────────────────────────────────
@@ -527,12 +525,15 @@ def generate_signals(
     ----------
     df             : DataFrame that contains all columns in feature_cols
     clf_long/short : loaded XGBClassifier from load_xgb_model()
-    feature_cols   : list of feature column names (default: XGB_FEATURE_COLS)
+    feature_cols   : feature names; defaults to model metadata or available prob_S columns
     long_threshold : confidence cut-off for long signal (default matches backtest: 0.6)
     short_threshold: confidence cut-off for short signal (default matches backtest: 0.8)
     """
     if feature_cols is None:
-        feature_cols = XGB_FEATURE_COLS
+        feature_cols = clf_long.get_booster().feature_names
+        if not feature_cols:
+            prob_cols = [c for c in df.columns if c.startswith('prob_S')]
+            feature_cols = XGB_BASE_FEATURE_COLS + prob_cols
 
     X    = df[feature_cols]
     df   = df.copy()

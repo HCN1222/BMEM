@@ -13,6 +13,7 @@ from src.experiments.train_hmm import (
     save_loglik_plot, 
     print_summary
 )
+from src.utils.paths import add_broker_path_args, paths_from_args
 
 def calculate_bic(model, X, lengths, covariance_type):
     """計算 BIC (包含 full 與 diag 的自動判斷)"""
@@ -39,8 +40,9 @@ def calculate_bic(model, X, lengths, covariance_type):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate HMM states, save ALL models, and plot BIC.")
-    parser.add_argument("--input_file", type=str, required=True, help="Path to input .npz file.")
-    parser.add_argument("--outdir", type=str, default="./outputs", help="Output directory.")
+    add_broker_path_args(parser)
+    parser.add_argument("--input-file", "--input_file", type=Path, help="Override the broker HMM training .npz file.")
+    parser.add_argument("--outdir", type=Path, help="Override the broker HMM evaluation runs directory.")
     parser.add_argument("--iterations", type=int, default=200, help="Max EM iterations.")
     parser.add_argument("--covariance_type", type=str, default="full", choices=["full", "diag"])
     parser.add_argument("--tol", type=float, default=1e-3)
@@ -49,14 +51,17 @@ def main():
     parser.add_argument("--max_states", type=int, default=6, help="Maximum number of states to evaluate.")
     
     args = parser.parse_args()
-    input_path = Path(args.input_file)
+    paths = paths_from_args(args)
+    input_path = args.input_file or paths.hmm_data_dir / "hmm_data_train.npz"
+    output_root = args.outdir or paths.hmm_runs_dir
+    args.input_file = str(input_path)
     
     # 1. 載入資料
     lengths, observations, feature_names = load_dataset(input_path)
     print(f"Data loaded. Observations: {observations.shape[0]}, Features: {observations.shape[1]}")
     
     # 2. 建立「主評估資料夾」(帶有唯一時間戳記，避免覆蓋)
-    eval_master_dir = create_output_dir(input_path, args.outdir)
+    eval_master_dir = create_output_dir(input_path, output_root)
     print(f"\nCreated master evaluation directory: {eval_master_dir}")
     
     bics = []

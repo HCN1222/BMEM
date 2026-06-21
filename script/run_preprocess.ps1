@@ -1,6 +1,6 @@
-python ./src/experiments/preprocess.py `
-    --broker_data_path "./data/brokers/1440/2021-06-30_to_2026-02-11.parquet" `
-    --stock_info_dir "./data/stocks" `
-    --output_dir "./data/preprocessed_data" `
+$BrokerId = "1440"
+
+python -m src.experiments.preprocess `
+    --broker-id $BrokerId `
     --split_year 2025 `
     --disable_standardize

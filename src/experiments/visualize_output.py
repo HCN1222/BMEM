@@ -1,3 +1,4 @@
+import argparse
 import matplotlib
 import matplotlib.patheffects as patheffects
 matplotlib.use('TkAgg') 
@@ -6,9 +7,22 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, TextBox
-import glob
-import os
 import sys
+from pathlib import Path
+
+from src.utils.paths import add_broker_path_args, paths_from_args
+from src.utils.stock_data import load_stock_data
+
+parser = argparse.ArgumentParser(description='Visualize broker-specific HMM output.')
+add_broker_path_args(parser)
+parser.add_argument('--vectors-path', type=Path, help='Override final_vectors_train.parquet')
+parser.add_argument('--hmm-params-path', type=Path, help='Override deployed HMM params')
+parser.add_argument('--stock-info-dir', type=Path, help='Override shared stock data directory')
+args = parser.parse_args()
+paths = paths_from_args(args)
+vectors_path = args.vectors_path or paths.hmm_data_dir / 'final_vectors_train.parquet'
+hmm_params_path = args.hmm_params_path or paths.hmm_model_path
+stock_info_dir = args.stock_info_dir or paths.stock_dir
 
 print("1. Starting script...")
 
@@ -16,8 +30,8 @@ print("1. Starting script...")
 # 1. Load Data & Cache Setup
 # ==========================================
 try:
-    df = pd.read_parquet('./data/preprocessed_data/final_vectors_train.parquet')
-    hmm_params = np.load('./outputs/result_20260326_212152/states_6/trained_hmm_params.npz')
+    df = pd.read_parquet(vectors_path)
+    hmm_params = np.load(hmm_params_path)
     states = hmm_params['decoded_states']
 except Exception as e:
     print(f"Error loading files: {e}")
@@ -37,17 +51,15 @@ state_colors = {state: cmap(i % 10) for i, state in enumerate(unique_states)}
 kline_cache = {}
 def get_kline_data(stock_id, date_str):
     if stock_id not in kline_cache:
-        _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
-        file_path = _matches[0] if _matches else ""
-        if os.path.exists(file_path):
-            try:
-                kdf = pd.read_parquet(file_path)
+        try:
+            kdf = load_stock_data(stock_info_dir, stock_id)
+            if not kdf.empty:
                 kdf['date'] = kdf['date'].astype(str).str[:10]
                 kdf.set_index('date', inplace=True)
                 kline_cache[stock_id] = kdf
-            except:
+            else:
                 kline_cache[stock_id] = None
-        else:
+        except Exception:
             kline_cache[stock_id] = None
             
     kdf = kline_cache[stock_id]
@@ -158,7 +170,7 @@ def draw_chart():
     c_list = [state_colors[s] for s in sub_df['State']]
     ax3.bar(x_positions, [1]*len(sub_df), color=c_list, width=1.0)
     
-    # 📌 在這裡加入數字標示
+    # Note: 在這裡加入數字標示
     if WINDOW_SIZE <= 100:
         for i, s in enumerate(sub_df['State']):
             # 將 State 數字畫在高度 0.5 的中央，並加上粗體與黑邊框增加辨識度

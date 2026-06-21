@@ -13,7 +13,7 @@ For a given target date this script:
   5. Computes HMM observation features (z_t, c_t, a_t, s_t, m_t)
   6. Runs rolling HMM inference (no-lookahead, 120-day window)
   7. Runs XGBoost long/short signal generation
-  8. Saves one CSV per run: outputs/daily/signals_YYYY-MM-DD.csv
+  8. Saves one CSV per run: outputs/{broker_id}/daily/signals_YYYY-MM-DD.csv
 
 Parquet update behaviour
 ------------------------
@@ -25,9 +25,8 @@ Parquet update behaviour
 
 Usage
 -----
-    python src/daily_update.py                     # target = today
-    python src/daily_update.py --date 2026-04-16
-    python src/daily_update.py --date 2026-04-16 --outdir ./outputs/daily
+    python src/daily_update.py --broker-id 1440
+    python src/daily_update.py --broker-id 1440 --date 2026-04-16
 """
 
 import os
@@ -73,19 +72,17 @@ from pipeline_functions import (
     load_xgb_model,
     generate_signals,
     FEATURE_COLS,
-    XGB_FEATURE_COLS,
+)
+from utils.paths import (
+    BrokerPaths,
+    DEFAULT_DATA_ROOT,
+    DEFAULT_OUTPUT_ROOT,
+    add_broker_path_args,
 )
 
-# ─── DEFAULT PATHS (relative to repo root) ───────────────────────────────────
-_ROOT = _SRC_DIR.parent
-
-BROKER_DIR       = _ROOT / "data" / "brokers"
-STOCK_DIR        = _ROOT / "data" / "stocks"
+BROKER_DIR       = DEFAULT_DATA_ROOT / "brokers"
+STOCK_DIR        = DEFAULT_DATA_ROOT / "stocks"
 STOCK_NAMES_FILE = STOCK_DIR / "stock_names.json"
-HMM_PARAMS     = _ROOT / "outputs" / "1440" / "models" / "HMM" / "trained_hmm_params.npz"
-XGB_LONG_PATH  = _ROOT / "outputs" / "1440" / "models" / "XGBoost" / "long"  / "xgb_trading_model.json"
-XGB_SHORT_PATH = _ROOT / "outputs" / "1440" / "models" / "XGBoost" / "short" / "xgb_trading_model.json"
-DEFAULT_OUTDIR = _ROOT / "outputs" / "daily"
 
 # ─── PIPELINE PARAMETERS ─────────────────────────────────────────────────────
 LOOKBACK_DAYS   = 130   # days of history loaded for rolling windows (>= 60 + buffer)
@@ -791,8 +788,10 @@ def _send_email(
 
 def run_daily_update(
     target_date: str,
-    broker_id: str = "1440",
-    output_dir: Path = DEFAULT_OUTDIR,
+    broker_id: str,
+    output_dir: Path | None = None,
+    data_root: Path = DEFAULT_DATA_ROOT,
+    output_root: Path = DEFAULT_OUTPUT_ROOT,
 ) -> pd.DataFrame | None:
     """
     Execute the full daily update pipeline for one target date.
@@ -800,7 +799,7 @@ def run_daily_update(
     Parameters
     ----------
     target_date : "YYYY-MM-DD" string
-    broker_id   : broker trader code (default "1440" = Merrill Lynch)
+    broker_id   : broker trader code and path namespace
     output_dir  : directory where signals_{target_date}.csv is written
 
     Returns
@@ -808,6 +807,19 @@ def run_daily_update(
     pd.DataFrame of signals (all candidate stocks for target_date),
     or None if no data was available (weekend / holiday / insufficient history).
     """
+    paths = BrokerPaths(broker_id, data_root, output_root)
+    broker_id = paths.broker_id
+    hmm_params = paths.hmm_model_path
+    xgb_long_path = paths.xgboost_model_path("long")
+    xgb_short_path = paths.xgboost_model_path("short")
+    output_dir = Path(output_dir) if output_dir else paths.daily_dir
+
+    # Configure the shared-data helpers for optional non-default data roots.
+    global BROKER_DIR, STOCK_DIR, STOCK_NAMES_FILE
+    BROKER_DIR = paths.data_root / "brokers"
+    STOCK_DIR = paths.stock_dir
+    STOCK_NAMES_FILE = STOCK_DIR / "stock_names.json"
+
     print(f"\n{'='*60}")
     print(f"  BMEM Daily Update -- {target_date}")
     print(f"{'='*60}")
@@ -898,10 +910,10 @@ def run_daily_update(
 
     # ── 5. HMM rolling inference ───────────────────────────────────────────────
     print(f"\n[5/5] Running HMM + XGBoost inference ...")
-    if not HMM_PARAMS.exists():
-        raise FileNotFoundError(f"HMM params not found: {HMM_PARAMS}")
+    if not hmm_params.exists():
+        raise FileNotFoundError(f"HMM params not found: {hmm_params}")
 
-    hmm_model = load_hmm_model(str(HMM_PARAMS))
+    hmm_model = load_hmm_model(str(hmm_params))
 
     # Phase 1: all stocks × today only (1 predict_proba call per stock)
     hmm_input = valid_df.sort_values(['stock_id', 'securities_trader_id', 'date'])
@@ -912,20 +924,30 @@ def run_daily_update(
     print(f"  -> State probabilities computed for {len(today_hmm)} rows")
 
     # ── 6. XGBoost signal generation ──────────────────────────────────────────
-    for path, label in [(XGB_LONG_PATH, "long"), (XGB_SHORT_PATH, "short")]:
+    for path, label in [(xgb_long_path, "long"), (xgb_short_path, "short")]:
         if not path.exists():
             raise FileNotFoundError(f"XGBoost {label} model not found: {path}")
 
-    clf_long  = load_xgb_model(str(XGB_LONG_PATH))
-    clf_short = load_xgb_model(str(XGB_SHORT_PATH))
+    clf_long  = load_xgb_model(str(xgb_long_path))
+    clf_short = load_xgb_model(str(xgb_short_path))
 
-    missing_feats = [c for c in XGB_FEATURE_COLS if c not in today_hmm.columns]
+    xgb_feature_cols = clf_long.get_booster().feature_names
+    short_feature_cols = clf_short.get_booster().feature_names
+    if xgb_feature_cols and short_feature_cols and xgb_feature_cols != short_feature_cols:
+        raise ValueError("Long and short XGBoost models use different feature columns.")
+    if not xgb_feature_cols:
+        xgb_feature_cols = (
+            ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d']
+            + [f'prob_S{i}' for i in range(hmm_model.n_components)]
+        )
+
+    missing_feats = [c for c in xgb_feature_cols if c not in today_hmm.columns]
     if missing_feats:
         raise ValueError(f"Missing XGBoost input features: {missing_feats}")
 
     signals_df = generate_signals(
         today_hmm, clf_long, clf_short,
-        feature_cols=XGB_FEATURE_COLS,
+        feature_cols=xgb_feature_cols,
         long_threshold=LONG_THRESHOLD,
         short_threshold=SHORT_THRESHOLD,
     )
@@ -954,7 +976,7 @@ def run_daily_update(
 
     signals_hist = generate_signals(
         hmm_hist, clf_long, clf_short,
-        feature_cols=XGB_FEATURE_COLS,
+        feature_cols=xgb_feature_cols,
         long_threshold=LONG_THRESHOLD,
         short_threshold=SHORT_THRESHOLD,
     )
@@ -1049,20 +1071,16 @@ def main():
             "run HMM + XGBoost inference, and save signals to CSV."
         )
     )
+    add_broker_path_args(parser)
     parser.add_argument(
         "--date",
         default=datetime.today().strftime("%Y-%m-%d"),
         help="Target trading date YYYY-MM-DD (default: today)",
     )
     parser.add_argument(
-        "--broker-id",
-        default="1440",
-        help="FinMind broker trader ID (default: 1440 = Merrill Lynch)",
-    )
-    parser.add_argument(
         "--outdir",
-        default=str(DEFAULT_OUTDIR),
-        help=f"Output directory for signal CSV files (default: {DEFAULT_OUTDIR})",
+        type=Path,
+        help="Override the broker-specific daily signal directory.",
     )
     args = parser.parse_args()
 
@@ -1070,7 +1088,9 @@ def main():
         run_daily_update(
             target_date=args.date,
             broker_id=args.broker_id,
-            output_dir=Path(args.outdir),
+            output_dir=args.outdir,
+            data_root=args.data_root,
+            output_root=args.output_root,
         )
     except Exception:
         tb = traceback.format_exc()

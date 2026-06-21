@@ -1,6 +1,7 @@
-python ./src/experiments/evaluate_states.py `
-    --input_file "./data/preprocessed_data/exp3/hmm_data_train.npz" `
-    --outdir "./outputs" `
+$BrokerId = "1440"
+
+python -m src.experiments.evaluate_states `
+    --broker-id $BrokerId `
     --iterations 200 `
     --covariance_type "full" `
     --min_states 10 `

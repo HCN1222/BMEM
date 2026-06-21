@@ -1,21 +1,33 @@
+import argparse
 import pandas as pd
 import numpy as np
-import glob
-import os
 import sys
 from hmmlearn import hmm
 from pandas.api.indexers import FixedForwardWindowIndexer
 from tqdm import tqdm  # 用於顯示進度條
+from pathlib import Path
+
+from src.utils.paths import add_broker_path_args, paths_from_args
+from src.utils.stock_data import load_stock_data
 
 # 開啟 Pandas 對齊全形中文字的支援
 pd.set_option('display.unicode.east_asian_width', True)
+
+parser = argparse.ArgumentParser(description='Evaluate a broker-specific HMM strategy.')
+add_broker_path_args(parser)
+parser.add_argument('--eval-parquet-path', type=Path, help='Override final_vectors_eval.parquet')
+parser.add_argument('--hmm-params-path', type=Path, help='Override deployed HMM params')
+parser.add_argument('--stock-info-dir', type=Path, help='Override shared stock data directory')
+args = parser.parse_args()
+paths = paths_from_args(args)
 
 print("1. 正在載入 Eval 資料與重建 HMM 模型...")
 # ==========================================
 # 1. 載入資料與模型重建
 # ==========================================
-eval_parquet_path = './data/preprocessed_data/exp3/final_vectors_eval.parquet'
-model_params_path = './outputs/exp3/states_10/trained_hmm_params.npz'
+eval_parquet_path = args.eval_parquet_path or paths.hmm_data_dir / 'final_vectors_eval.parquet'
+model_params_path = args.hmm_params_path or paths.hmm_model_path
+stock_info_dir = args.stock_info_dir or paths.stock_dir
 
 try:
     df_eval = pd.read_parquet(eval_parquet_path)
@@ -132,10 +144,8 @@ return_records = []
 forward_indexer = FixedForwardWindowIndexer(window_size=10)
 
 for stock_id in tqdm(unique_stocks, desc="計算未來報酬"):
-    _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
-    file_path = _matches[0] if _matches else ""
-    if os.path.exists(file_path):
-        kdf = pd.read_parquet(file_path)
+    kdf = load_stock_data(stock_info_dir, stock_id)
+    if not kdf.empty:
         kdf['date'] = kdf['date'].astype(str).str[:10]
         kdf = kdf.sort_values('date')
         
@@ -164,8 +174,8 @@ print("5. 產出 Out-of-Sample 策略勝率分析表...\n")
 surge_threshold = 0.10  # 高點 >= 10%
 drop_threshold = -0.10  # 低點 <= -10%
 
-# 因為模型已經變成 10 個 State，確保 0~9 都有顯示
-all_states = pd.DataFrame({'State': range(10)})
+# 確保所有模型 states 都有顯示，即使部分 state 在 Eval 沒有觸發。
+all_states = pd.DataFrame({'State': range(n_components)})
 grouped = eda_df.groupby('State')
 
 stats = pd.DataFrame()

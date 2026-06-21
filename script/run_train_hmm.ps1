@@ -1,6 +1,7 @@
-python ./src/experiments/train_hmm.py `
-    --input_file "./data/preprocessed_data/exp3/hmm_data_train.npz" `
-    --outdir "./outputs" `
+$BrokerId = "1440"
+
+python -m src.experiments.train_hmm `
+    --broker-id $BrokerId `
     --iterations 200 `
     --n_states 3 `
     --covariance_type "full" `

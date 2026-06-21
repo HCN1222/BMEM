@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import os
 import glob
+from pathlib import Path
+
+from src.utils.paths import add_broker_path_args, paths_from_args
 
 def time_series_normalize(series, window=20):
     """
@@ -22,24 +25,41 @@ def time_series_normalize(series, window=20):
 def main():
     # ARGPARSE Setup
     parser = argparse.ArgumentParser(description="Process broker and stock data to create HMM observation vectors.")
-    parser.add_argument('--broker_data_path', type=str, required=True, help="Path to the broker data .parquet file")
-    parser.add_argument('--stock_info_dir', type=str, required=True, help="Path to the directory containing stock .parquet files")
-    parser.add_argument('--output_dir', type=str, default='./data/preprocessed_data/', help="Directory to save the output files")
+    add_broker_path_args(parser)
+    parser.add_argument('--broker-data-path', '--broker_data_path', type=Path, help="Override broker parquet file or directory")
+    parser.add_argument('--stock-info-dir', '--stock_info_dir', type=Path, help="Override the shared stock parquet directory")
+    parser.add_argument('--output-dir', '--output_dir', type=Path, help="Override the broker-specific HMM data directory")
     parser.add_argument('--split_year', type=int, default=2025, help="Year to split train and eval sets at the first >7 day break.")
     parser.add_argument('--disable_standardize', action='store_true', help="Disable the 20-day rolling Z-score standardization.")
 
     args = parser.parse_args()
-    os.makedirs(args.output_dir, exist_ok=True)
+    paths = paths_from_args(args)
+    broker_data_path = args.broker_data_path or paths.broker_raw_dir
+    stock_info_dir = args.stock_info_dir or paths.stock_dir
+    output_dir = args.output_dir or paths.hmm_data_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Read Dataframes
-    print(f"Reading broker data from {args.broker_data_path}...")
-    broker_df = pd.read_parquet(args.broker_data_path)
+    print(f"Reading broker data from {broker_data_path}...")
+    if broker_data_path.is_dir():
+        broker_files = sorted(broker_data_path.glob('*.parquet'))
+        if not broker_files:
+            raise ValueError(f"No parquet files found in broker directory: {broker_data_path}")
+        broker_df = pd.concat([pd.read_parquet(f) for f in broker_files], ignore_index=True)
+        if 'securities_trader_id' not in broker_df.columns:
+            broker_df['securities_trader_id'] = args.broker_id
+        broker_df = broker_df.drop_duplicates(subset=['date', 'stock_id', 'securities_trader_id'])
+    else:
+        broker_df = pd.read_parquet(broker_data_path)
+        if 'securities_trader_id' not in broker_df.columns:
+            broker_df['securities_trader_id'] = args.broker_id
 
-    print(f"Reading stock data from directory: {args.stock_info_dir}...")
-    stock_files = glob.glob(os.path.join(args.stock_info_dir, '*.parquet'))
+    print(f"Reading stock data from directory: {stock_info_dir}...")
+    stock_files = glob.glob(os.path.join(stock_info_dir, '*.parquet'))
     if not stock_files:
         raise ValueError("No parquet files found in the stock info directory.")
     stock_df = pd.concat([pd.read_parquet(f) for f in stock_files], ignore_index=True)
+    stock_df = stock_df.drop_duplicates(subset=['stock_id', 'date'], keep='last')
 
     broker_df['date'] = pd.to_datetime(broker_df['date'])
     stock_df['date'] = pd.to_datetime(stock_df['date'])
@@ -195,11 +215,11 @@ def main():
     # 6. Save outputs into .npz and .parquet files
     print("Packing data into output files...")
 
-    train_npz_path = os.path.join(args.output_dir, 'hmm_data_train.npz')
-    eval_npz_path = os.path.join(args.output_dir, 'hmm_data_eval.npz')
+    train_npz_path = output_dir / 'hmm_data_train.npz'
+    eval_npz_path = output_dir / 'hmm_data_eval.npz'
 
-    train_parquet_path = os.path.join(args.output_dir, 'final_vectors_train.parquet')
-    eval_parquet_path = os.path.join(args.output_dir, 'final_vectors_eval.parquet')
+    train_parquet_path = output_dir / 'final_vectors_train.parquet'
+    eval_parquet_path = output_dir / 'final_vectors_eval.parquet'
 
     np.savez(train_npz_path, lengths=lengths_train, observations=X_train, feature_names=feature_cols)
     np.savez(eval_npz_path, lengths=lengths_eval, observations=X_eval, feature_names=feature_cols)

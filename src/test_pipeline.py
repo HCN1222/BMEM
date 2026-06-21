@@ -36,6 +36,7 @@ Test 4   Short XGBoost signal quality
          Same as Test 3 but for the short model (threshold 0.8).
 """
 
+import argparse
 import sys
 from pathlib import Path
 import numpy as np
@@ -55,22 +56,37 @@ from pipeline_functions import (
     load_xgb_model,
     generate_signals,
     FEATURE_COLS,
-    XGB_FEATURE_COLS,
 )
+from utils.paths import add_broker_path_args, paths_from_args
 
 # ─── Reference file paths ──────────────────────────────────────────────────
-FINAL_VECTORS_EVAL  = _ROOT / "data/preprocessed_data/exp3/final_vectors_eval.parquet"
-HMM_EVAL_NPZ        = _ROOT / "data/preprocessed_data/exp3/hmm_data_eval.npz"
-XGB_LONG_EVAL       = _ROOT / "data/preprocessed_data/xgb_dataset_long_eval.parquet"
-XGB_SHORT_EVAL      = _ROOT / "data/preprocessed_data/xgb_dataset_short_eval.parquet"
-HMM_PARAMS          = _ROOT / "outputs/exp3/states_10/trained_hmm_params.npz"
-XGB_LONG_MODEL      = _ROOT / "outputs/models/long/xgb_trading_model.json"
-XGB_SHORT_MODEL     = _ROOT / "outputs/models/short/xgb_trading_model.json"
+BROKER_ID = None
+FINAL_VECTORS_EVAL = None
+HMM_EVAL_NPZ = None
+XGB_LONG_EVAL = None
+XGB_SHORT_EVAL = None
+HMM_PARAMS = None
+XGB_LONG_MODEL = None
+XGB_SHORT_MODEL = None
+BROKER_DATA_DIR = None
+STOCK_DATA_DIR = None
 
-# ─── Raw data paths (for Test 1b) ──────────────────────────────────────────
-# Must match the inputs used when preprocess.py generated final_vectors_eval.parquet
-BROKER_DATA_DIR = _ROOT / "data/brokers/1440"   # broker 1440 (Merrill Lynch)
-STOCK_DATA_DIR  = _ROOT / "data/stocks"
+
+def configure_paths(paths):
+    global BROKER_ID, FINAL_VECTORS_EVAL, HMM_EVAL_NPZ
+    global XGB_LONG_EVAL, XGB_SHORT_EVAL, HMM_PARAMS
+    global XGB_LONG_MODEL, XGB_SHORT_MODEL, BROKER_DATA_DIR, STOCK_DATA_DIR
+
+    BROKER_ID = paths.broker_id
+    FINAL_VECTORS_EVAL = paths.hmm_data_dir / "final_vectors_eval.parquet"
+    HMM_EVAL_NPZ = paths.hmm_data_dir / "hmm_data_eval.npz"
+    XGB_LONG_EVAL = paths.xgboost_data_dir("long") / "test.parquet"
+    XGB_SHORT_EVAL = paths.xgboost_data_dir("short") / "test.parquet"
+    HMM_PARAMS = paths.hmm_model_path
+    XGB_LONG_MODEL = paths.xgboost_model_path("long")
+    XGB_SHORT_MODEL = paths.xgboost_model_path("short")
+    BROKER_DATA_DIR = paths.broker_raw_dir
+    STOCK_DATA_DIR = paths.stock_dir
 
 # ─── Run flags ─────────────────────────────────────────────────────────────
 # Set RUN_INFERENCE = True to include Test 2 (HMM rolling inference, ~6 min).
@@ -193,7 +209,7 @@ def test_feature_computation() -> TestResult:
     broker_df['date'] = pd.to_datetime(broker_df['date'])
     broker_df = broker_df.drop_duplicates(subset=['date', 'stock_id'])
     if 'securities_trader_id' not in broker_df.columns:
-        broker_df['securities_trader_id'] = '1440'
+        broker_df['securities_trader_id'] = BROKER_ID
 
     t.info(f"Broker rows loaded  : {len(broker_df):,}")
 
@@ -319,7 +335,7 @@ def test_hmm_probability_replication() -> TestResult:
     df_eval['date'] = pd.to_datetime(df_eval['date'])
     df_ref_xgb['date'] = pd.to_datetime(df_ref_xgb['date'])
 
-    prob_cols = [f'prob_S{i}' for i in range(10)]
+    prob_cols = [c for c in df_ref_xgb.columns if c.startswith('prob_S')]
     t.info(f"Eval rows       : {len(df_eval):,}")
     t.info(f"XGB eval rows   : {len(df_ref_xgb):,}")
 
@@ -413,11 +429,17 @@ def _xgb_metrics(t: TestResult, df: pd.DataFrame, direction: str,
         return
 
     clf = load_xgb_model(str(model_path))
+    feature_cols = clf.get_booster().feature_names
+    if not feature_cols:
+        feature_cols = (
+            ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d']
+            + [c for c in df.columns if c.startswith('prob_S')]
+        )
     prob_col   = f'pred_prob_{direction}'
     signal_col = f'signal_{direction}'
 
     # Use only the XGB feature columns present in df
-    missing = [c for c in XGB_FEATURE_COLS if c not in df.columns]
+    missing = [c for c in feature_cols if c not in df.columns]
     if missing:
         t.check(False, "", f"Missing features: {missing}")
         return
@@ -425,10 +447,10 @@ def _xgb_metrics(t: TestResult, df: pd.DataFrame, direction: str,
     # generate_signals adds pred_prob_long, pred_prob_short, signal_long, signal_short
     # We call it with the correct threshold for the direction we care about
     if direction == 'long':
-        df_out = generate_signals(df, clf, clf,
+        df_out = generate_signals(df, clf, clf, feature_cols=feature_cols,
                                   long_threshold=threshold, short_threshold=1.1)
     else:
-        df_out = generate_signals(df, clf, clf,
+        df_out = generate_signals(df, clf, clf, feature_cols=feature_cols,
                                   long_threshold=1.1, short_threshold=threshold)
 
     y_true = df_out['target_y'].values
@@ -495,6 +517,11 @@ def test_short_xgb_signals() -> TestResult:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(description="Run broker-specific pipeline verification tests.")
+    add_broker_path_args(parser)
+    args = parser.parse_args()
+    configure_paths(paths_from_args(args))
+
     print("\n" + "=" * 60)
     print("  BMEM Pipeline Test Bench")
     print("=" * 60)
@@ -505,7 +532,7 @@ def main():
         "hmm_data_eval.npz"          : HMM_EVAL_NPZ,
         "xgb_dataset_long_eval"      : XGB_LONG_EVAL,
         "xgb_dataset_short_eval"     : XGB_SHORT_EVAL,
-        "broker data dir (1440)"     : BROKER_DATA_DIR,
+        f"broker data dir ({BROKER_ID})": BROKER_DATA_DIR,
         "stock data dir"             : STOCK_DATA_DIR,
         "xgb long model"             : XGB_LONG_MODEL,
         "xgb short model"            : XGB_SHORT_MODEL,

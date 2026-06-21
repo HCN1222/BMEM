@@ -20,14 +20,17 @@ from hmmlearn.hmm import GaussianHMM
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 
+from src.utils.paths import add_broker_path_args, paths_from_args
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Train a Gaussian HMM from concatenated multi-sequence observations stored in a .npz file."
     )
 
-    parser.add_argument( "--input_file", type=str, required=True, help="Path to input .npz file." )
-    parser.add_argument( "--outdir", type=str, required=True, help="Name or path of output directory. Default: output" )
+    add_broker_path_args(parser)
+    parser.add_argument( "--input-file", "--input_file", type=Path, help="Override the broker HMM training .npz file." )
+    parser.add_argument( "--outdir", type=Path, help="Override the deployed HMM model directory." )
     parser.add_argument( "--iterations", type=int, default=100, help="Maximum number of EM iterations. Default: 100" )
     parser.add_argument( "--n_states", type=int, required=True, help="Number of hidden states." )
     parser.add_argument( "--covariance_type", type=str, default="full", choices=["full", "diag"], help='Covariance type for Gaussian emissions. Default: full')
@@ -213,6 +216,7 @@ def save_results(
     )
 
     metadata = {
+        "broker_id": getattr(args, "broker_id", None),
         "input_file": str(args.input_file),
         "outdir": str(outdir),
         "iterations": int(args.iterations),
@@ -244,11 +248,15 @@ def print_summary(feature_names: np.ndarray, model: GaussianHMM):
 
 def main():
     args = parse_args()
+    paths = paths_from_args(args)
 
-    input_path = Path(args.input_file)
+    input_path = args.input_file or paths.hmm_data_dir / "hmm_data_train.npz"
     validate_input_file(input_path)
 
-    outdir = create_output_dir(input_path, args.outdir)
+    outdir = args.outdir or paths.hmm_model_dir
+    outdir.mkdir(parents=True, exist_ok=True)
+    args.input_file = str(input_path)
+    args.outdir = str(outdir)
 
     lengths, observations, feature_names = load_dataset(input_path)
 

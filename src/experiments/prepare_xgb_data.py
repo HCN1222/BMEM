@@ -1,11 +1,14 @@
+import argparse
 import pandas as pd
 import numpy as np
-import glob
-import os
 import sys
+from pathlib import Path
 from hmmlearn import hmm
 from pandas.api.indexers import FixedForwardWindowIndexer
 from tqdm import tqdm
+
+from src.utils.paths import add_broker_path_args, paths_from_args
+from src.utils.stock_data import load_stock_data
 
 pd.set_option('display.unicode.east_asian_width', True)
 
@@ -21,13 +24,25 @@ VAL_END    = '2024-12-31'
 TEST_START = '2025-01-01'
 TEST_END   = '2026-05-31'
 
+parser = argparse.ArgumentParser(description="Prepare broker-specific XGBoost datasets.")
+add_broker_path_args(parser)
+parser.add_argument('--train-parquet-path', type=Path, help='Override final_vectors_train.parquet')
+parser.add_argument('--eval-parquet-path', type=Path, help='Override final_vectors_eval.parquet')
+parser.add_argument('--hmm-params-path', type=Path, help='Override the deployed HMM params')
+parser.add_argument('--stock-info-dir', type=Path, help='Override the shared stock data directory')
+parser.add_argument('--output-dir', type=Path, help='Override the broker XGBoost dataset directory')
+args = parser.parse_args()
+paths = paths_from_args(args)
+
 print("1. 正在載入資料與重建 HMM 模型...")
 # ==========================================
 # 1. 載入全部序列 (train + eval 合併，以取得所有日期的資料)
 # ==========================================
-train_parquet_path = './data/preprocessed_data/exp4/final_vectors_train.parquet'
-eval_parquet_path  = './data/preprocessed_data/exp4/final_vectors_eval.parquet'
-hmm_params_path    = './outputs/exp5/result_20260607_194920/states_6/trained_hmm_params.npz'
+train_parquet_path = args.train_parquet_path or paths.hmm_data_dir / 'final_vectors_train.parquet'
+eval_parquet_path  = args.eval_parquet_path or paths.hmm_data_dir / 'final_vectors_eval.parquet'
+hmm_params_path    = args.hmm_params_path or paths.hmm_model_path
+stock_info_dir     = args.stock_info_dir or paths.stock_dir
+output_dir         = args.output_dir or paths.xgboost_data_dir()
 
 try:
     df_part1   = pd.read_parquet(train_parquet_path)
@@ -107,10 +122,8 @@ return_records = []
 forward_indexer = FixedForwardWindowIndexer(window_size=10)
 
 for stock_id in tqdm(unique_stocks, desc="計算未來價格極值"):
-    _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
-    file_path = _matches[0] if _matches else ""
-    if os.path.exists(file_path):
-        kdf = pd.read_parquet(file_path)
+    kdf = load_stock_data(stock_info_dir, stock_id)
+    if not kdf.empty:
         kdf['date'] = kdf['date'].astype(str).str[:10]
         kdf = kdf.sort_values('date')
 
@@ -154,16 +167,16 @@ print(f"  Train (2021 ~ {TRAIN_END}): {len(df_train_period):,} 筆")
 print(f"  Val   ({VAL_START} ~ {VAL_END}): {len(df_val_period):,} 筆")
 print(f"  Test  ({TEST_START} ~ {TEST_END}): {len(df_test_period):,} 筆")
 
-os.makedirs('./data/preprocessed_data', exist_ok=True)
-
 for mode, target_col in [('long', 'target_y_long'), ('short', 'target_y_short')]:
     df_tr = df_train_period[base_cols + [target_col]].rename(columns={target_col: 'target_y'})
     df_va = df_val_period[base_cols + [target_col]].rename(columns={target_col: 'target_y'})
     df_te = df_test_period[base_cols + [target_col]].rename(columns={target_col: 'target_y'})
 
-    df_tr.to_parquet(f'./data/preprocessed_data/xgb_dataset_{mode}_train.parquet', index=False)
-    df_va.to_parquet(f'./data/preprocessed_data/xgb_dataset_{mode}_val.parquet',   index=False)
-    df_te.to_parquet(f'./data/preprocessed_data/xgb_dataset_{mode}_test.parquet',  index=False)
+    side_dir = output_dir / mode
+    side_dir.mkdir(parents=True, exist_ok=True)
+    df_tr.to_parquet(side_dir / 'train.parquet', index=False)
+    df_va.to_parquet(side_dir / 'val.parquet', index=False)
+    df_te.to_parquet(side_dir / 'test.parquet', index=False)
 
     print(f"\n[{mode}]")
     print(f"  Train: {len(df_tr):,} | Base rate: {df_tr['target_y'].mean()*100:.2f}%")

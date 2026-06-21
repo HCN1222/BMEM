@@ -25,7 +25,7 @@ A quantitative trading system for Taiwan stocks that uses a two-stage machine le
 
 ## Project Overview
 
-BMEM monitors the trading activity of specific institutional brokers (primarily Merrill Lynch, broker ID `1440`) on the Taiwan Stock Exchange and uses that information to predict whether a stock is likely to move +10% (long) or -10% (short) within a forward-looking window.
+BMEM monitors institutional brokers on the Taiwan Stock Exchange and trains an independent HMM + XGBoost model stack for each broker. A broker ID such as `1440` (Merrill Lynch) or `1470` (Morgan Stanley Taiwan) acts as the namespace for raw data, processed datasets, models, backtests, and daily signals.
 
 The system is designed to run daily and outputs a ranked signal CSV indicating which stocks are worth entering in either direction.
 
@@ -37,11 +37,13 @@ The system is designed to run daily and outputs a ranked signal CSV indicating w
 
 | Split | Period | Purpose |
 |-------|--------|---------|
-| Train | 2021 – 2023 | HMM training + XGBoost training (75% of train set) |
+| Train | 2021 – 2023 | HMM training + XGBoost training |
 | Validation | 2024 | XGBoost early stopping + threshold tuning |
 | **Test (Backtest)** | **2025** | **Out-of-sample portfolio simulation — never touched during training** |
 
 ### Out-of-Sample Performance (2025, TWD 1,000,000 initial capital)
+
+The results below are from the original `1440` model and are retained as the project baseline.
 
 ![Top-N Strategy vs 0050](outputs/1440/backtest/equity_curve_top_n_comparison.png)
 
@@ -64,13 +66,13 @@ The model uses a two-stage pipeline:
 
 ### Stage 1 — Hidden Markov Model (HMM)
 
-A Gaussian HMM is trained on 5-dimensional observation vectors derived from broker trading data. It learns to classify each trading day into one of **10 hidden states** representing behavioral regimes such as:
+A Gaussian HMM is trained on 5-dimensional observation vectors derived from one broker's trading data. It learns to classify each trading day into hidden states representing behavioral regimes such as:
 
 - Building position (accumulation)
 - Holding position (steady state)
 - Liquidating position (distribution)
 
-The HMM is initialized with K-Means clustering for better convergence and fitted using the Baum-Welch (EM) algorithm. State count was selected by minimizing BIC across candidates from 2 to 11.
+The HMM is initialized with K-Means clustering for better convergence and fitted using the Baum-Welch (EM) algorithm. State count is selected independently for each broker by minimizing BIC across a configurable candidate range. The original `1440` research model selected 10 states.
 
 ### Stage 2 — XGBoost Classifier
 
@@ -95,14 +97,14 @@ FinMind API
            │
            ▼
     HMM Inference (rolling 120-day window, no lookahead)
-    → 10 state probabilities per (date, stock)
+    → N state probabilities per (date, stock), where N is broker-specific
            │
            ▼
     XGBoost Prediction
     → pred_prob_long, pred_prob_short
            │
            ▼
-    outputs/daily/signals_{YYYY-MM-DD}.csv
+    outputs/{broker_id}/daily/signals_{YYYY-MM-DD}.csv
 ```
 
 ---
@@ -116,6 +118,8 @@ BMEM/
 │   ├── daily_update.py                         # Main production entry point
 │   ├── test_pipeline.py                        # Verification/regression tests
 │   ├── utils/
+│   │   ├── paths.py                            # Central broker-aware path definitions
+│   │   ├── stock_data.py                       # Merge historical and incremental OHLCV files
 │   │   ├── io.py                               # File I/O helpers
 │   │   └── datetime.py                         # Date and business day utilities
 │   └── experiments/                            # Research and training scripts (run once)
@@ -131,51 +135,43 @@ BMEM/
 │       └── visualize_output.py                 # Interactive HMM state visualization
 │
 ├── data/
-│   ├── brokers/{trader_id}/                    # Raw broker data (parquet + _meta.json per file)
-│   ├── stocks/                                 # Stock OHLCV data (one parquet per ticker)
+│   ├── brokers/
+│   │   └── {broker_id}/                        # Raw broker parquet and metadata files
+│   ├── stocks/                                 # Shared OHLCV data; not duplicated per broker
+│   │   └── stock_ids.json                      # Generated union of IDs found in all broker data
 │   └── preprocessed_data/
-│       ├── exp{N}/                             # Per-experiment feature datasets (exp1, exp2, exp3)
-│       │   ├── final_vectors_train.parquet     # Feature rows — train split
-│       │   ├── final_vectors_eval.parquet      # Feature rows — eval split
-│       │   ├── hmm_data_train.npz              # Packed observation sequences for HMM fitting
-│       │   ├── hmm_data_eval.npz
-│       │   └── spec.txt                        # Experiment parameters
-│       ├── xgb_dataset_long_train.parquet      # XGBoost long model — training set
-│       ├── xgb_dataset_long_eval.parquet       # XGBoost long model — eval/test set
-│       ├── xgb_dataset_short_train.parquet     # XGBoost short model — training set
-│       └── xgb_dataset_short_eval.parquet      # XGBoost short model — eval/test set
+│       └── {broker_id}/
+│           ├── hmm/
+│           │   ├── final_vectors_{train,eval}.parquet
+│           │   └── hmm_data_{train,eval}.npz
+│           └── xgboost/
+│               ├── long/{train,val,test}.parquet
+│               └── short/{train,val,test}.parquet
 │
 ├── outputs/
-│   ├── exp{N}/                                 # BIC evaluation results per experiment
-│   │   ├── bic_evaluation_curve*.png           # BIC score vs state count chart
-│   │   └── states_{K}/                         # Results for each candidate state count (K=2…11)
-│   │       ├── trained_hmm_params.npz          # HMM parameters + decoded states + posteriors
-│   │       ├── metadata.json                   # Training config and final log-likelihood
-│   │       └── log_likelihood_curve.png        # EM convergence plot
-│   ├── models/
-│   │   ├── HMM/                                # Deployed HMM model (production copy)
-│   │   │   ├── trained_hmm_params.npz
-│   │   │   └── metadata.json
-│   │   └── XGBoost/
-│   │       ├── long/                           # Deployed long XGBoost classifier
-│   │       └── short/                          # Deployed short XGBoost classifier
-│   ├── daily/                                  # Daily signal CSVs (signals_YYYY-MM-DD.csv)
-│   ├── backtest/
-│   │   ├── equity_curve_top_n_comparison.png   # Top-1/3/5 vs 0050 equity & drawdown
-│   │   ├── equity_curve_ema_long_top{N}_comparison.png  # EMA smoothing comparison per Top-N
-│   │   ├── trailing_stop_trades.csv            # Trade log from trailing-stop experiments
-│   │   └── reports/
-│   │       └── top1_trade_history.csv          # Top-1 strategy trade-by-trade log
-│   └── reports/                                # Miscellaneous analysis reports
+│   └── {broker_id}/
+│       ├── runs/hmm/result_{timestamp}/         # BIC candidates and training diagnostics
+│       │   ├── bic_evaluation_curve.png
+│       │   └── states_{K}/
+│       ├── models/
+│       │   ├── hmm/                            # Deployed HMM used by downstream jobs
+│       │   └── xgboost/{long,short}/            # Deployed direction-specific classifiers
+│       ├── daily/                              # signals_{YYYY-MM-DD}.csv
+│       ├── backtest/                           # Equity charts and trade reports
+│       └── analysis/                           # Model analysis artifacts
 │
 ├── script/                                     # Runner scripts
 │   ├── run_daily_update.ps1                    # PowerShell daily update runner
 │   ├── run_daily_update.bat                    # Batch file alternative (Windows)
+│   ├── run_data_pipeline.ps1                   # Broker data → stock ID union → stock prices
 │   ├── run_broker_activity.ps1
 │   ├── run_stock_info.ps1
 │   ├── run_preprocess.ps1
 │   ├── run_evaluate_states.ps1
 │   ├── run_train_hmm.ps1
+│   ├── run_prepare_xgb_data.ps1
+│   ├── run_train_xgboost.ps1
+│   ├── run_portfolio_backtest.ps1
 │   └── run_test_pipeline.ps1
 │
 ├── notebooks/
@@ -187,8 +183,10 @@ BMEM/
 │
 ├── environment.yml                             # Conda environment specification
 ├── .env.example                                # API key template
-└── README.md                                   # Original project documentation
+└── README.md                                   # Project documentation
 ```
+
+Legacy `exp1`/`exp2`/`exp3` directories may remain as historical research artifacts. The broker-aware pipeline does not auto-select them; regenerate the standard layout or pass an explicit input-path override when reproducing an older experiment.
 
 ---
 
@@ -231,27 +229,30 @@ MY_CC= # Email1, Email2
 
 ## Quick Start
 
-If the models are already trained and data is present, run the daily update:
+Run commands from the repository root. If broker-specific models are already trained, start the daily pipeline by passing the broker ID explicitly:
 
 ```bash
-# Run for today
-python src/daily_update.py
+# Run broker 1440 for today
+python src/daily_update.py --broker-id 1440
 
 # Run for a specific date
-python src/daily_update.py --date 2026-04-16
+python src/daily_update.py --broker-id 1440 --date 2026-04-16
 
 # Custom output directory
-python src/daily_update.py --date 2026-04-16 --outdir ./outputs/custom
+python src/daily_update.py --broker-id 1440 --outdir ./outputs/1440/custom-daily
 ```
 
 Or via PowerShell:
 
 ```powershell
-.\script\run_daily_update.ps1
-.\script\run_daily_update.ps1 -Date "2026-04-16"
+.\script\run_daily_update.ps1 -BrokerId "1440"
+.\script\run_daily_update.ps1 -BrokerId "1470" -Date "2026-04-16"
+
+# Batch wrapper; broker ID defaults to 1440 when omitted
+.\script\run_daily_update.bat 1470
 ```
 
-Output is written to `outputs/daily/signals_{YYYY-MM-DD}.csv`.
+Output is written to `outputs/{broker_id}/daily/signals_{YYYY-MM-DD}.csv`.
 
 > **Note:** The script automatically skips weekends and non-trading days.
 
@@ -259,15 +260,23 @@ Output is written to `outputs/daily/signals_{YYYY-MM-DD}.csv`.
 
 ## Full Research Workflow
 
-Run these steps once to reproduce training from scratch.
+Run these steps once per broker to reproduce training from scratch. Every broker-specific research command requires `--broker-id`; `--data-root` and `--output-root` are optional overrides and normally do not need to be specified.
+
+To refresh all raw data in dependency order, use the combined PowerShell runner:
+
+```powershell
+.\script\run_data_pipeline.ps1 -StartDate "2021-06-30" -EndDate "2026-06-18"
+```
+
+It downloads every configured broker first, rebuilds `data/stocks/stock_ids.json` from the union of their trading records, and then downloads only missing stock-price date ranges.
 
 ### Step 1 — Download Broker Activity Data
 
 ```bash
-python src/experiments/download_broker_activity.py \
+python -m src.experiments.download_broker_activity \
+  --broker-id 1440 \
   --start 2021-06-30 \
-  --end 2026-04-16 \
-  --trader-id 1440
+  --end 2026-04-16
 ```
 
 Outputs: `data/brokers/1440/{start}_to_{end}.parquet` with daily buy/sell records per stock.
@@ -275,29 +284,32 @@ Outputs: `data/brokers/1440/{start}_to_{end}.parquet` with daily buy/sell record
 ### Step 2 — Download Stock Price Data
 
 ```bash
-python src/experiments/download_stock_info.py \
-  --mode list \
-  --stock-ids-json stock_ids.json \
+python -m src.experiments.download_stock_info \
+  --mode brokers \
   --start 2021-06-30 \
   --end 2026-04-16
 ```
 
-Outputs: `data/stocks/{stock_id}_{date_range}.parquet` for each ticker.
+`--mode brokers` scans every parquet/CSV under `data/brokers/*`, writes the sorted unique ID union to `data/stocks/stock_ids.json`, and downloads only missing OHLCV date ranges. Stock prices are shared across brokers and are intentionally not copied into broker directories.
+
+To rebuild and inspect the ID list without calling FinMind:
+
+```bash
+python -m src.experiments.download_stock_info --mode brokers --refresh-only
+```
 
 ### Step 3 — Preprocess & Feature Engineering
 
 ```bash
-python src/experiments/preprocess.py \
-  --broker_data_path ./data/brokers/1440/2021-06-30_to_2026-04-16.parquet \
-  --stock_info_dir ./data/stocks \
-  --output_dir ./data/preprocessed_data/exp3 \
+python -m src.experiments.preprocess \
+  --broker-id 1440 \
   --disable_standardize
 ```
 
-Outputs in `data/preprocessed_data/exp3/`:
+The script loads and deduplicates all parquet files under `data/brokers/1440/`. Outputs are written to `data/preprocessed_data/1440/hmm/`:
+
 - `final_vectors_train.parquet` / `final_vectors_eval.parquet` — Feature rows
 - `hmm_data_train.npz` / `hmm_data_eval.npz` — Concatenated sequences for HMM fitting
-- `spec.txt` — Experiment parameters
 
 > Stocks are filtered out if max volume < 10M or close price is 0/NaN.
 > The `--disable_standardize` flag is required to match production inference scaling.
@@ -305,54 +317,59 @@ Outputs in `data/preprocessed_data/exp3/`:
 ### Step 4 — Evaluate HMM State Count (BIC Optimization)
 
 ```bash
-python src/experiments/evaluate_states.py \
-  --input_file ./data/preprocessed_data/exp3/hmm_data_train.npz \
-  --outdir ./outputs \
+python -m src.experiments.evaluate_states \
+  --broker-id 1440 \
   --min_states 2 \
   --max_states 11
 ```
 
-Trains HMM for each candidate state count and saves BIC scores. Lower BIC = better model.
+Trains an HMM for each candidate state count and saves results under `outputs/1440/runs/hmm/result_{timestamp}/`. Lower BIC is better.
 
 ### Step 5 — Train Final HMM
 
 ```bash
-python src/experiments/train_hmm.py \
-  --input_file ./data/preprocessed_data/exp3/hmm_data_train.npz \
-  --outdir ./outputs/exp3/states_10 \
+python -m src.experiments.train_hmm \
+  --broker-id 1440 \
   --n_states 10 \
   --iterations 100
 ```
 
-Outputs: `outputs/trained_hmm_params.npz` and `metadata.json`.
+After selecting the state count from Step 4, this command trains the deployed model and writes `trained_hmm_params.npz`, `metadata.json`, and the log-likelihood chart to `outputs/1440/models/hmm/`.
 
 ### Step 6 — Prepare XGBoost Training Data
 
 ```bash
-python src/experiments/prepare_xgb_data.py
+python -m src.experiments.prepare_xgb_data --broker-id 1440
 ```
 
-Runs rolling HMM inference (120-day window, no lookahead) over the evaluation set to generate state probabilities, then joins forward returns and labels (+10%/-10% thresholds).
+Runs rolling HMM inference (120-day window, no lookahead), joins forward returns, and creates direction-specific labels (+10%/-10% thresholds).
 
-Outputs: `data/preprocessed_data/xgb_dataset_long_eval.parquet` (and short equivalent).
+Outputs:
+
+- `data/preprocessed_data/1440/xgboost/long/{train,val,test}.parquet`
+- `data/preprocessed_data/1440/xgboost/short/{train,val,test}.parquet`
 
 ### Step 7 — Train XGBoost Models
 
 ```bash
-python src/experiments/train_xgboost.py
+python -m src.experiments.train_xgboost --broker-id 1440 --side long
+python -m src.experiments.train_xgboost --broker-id 1440 --side short
 ```
 
-Trains two independent classifiers and place them here:
-- **Long model** → `outputs/models/XGBoost/long/xgb_trading_model.json`
-- **Short model** → `outputs/models/XGBoost/short/xgb_trading_model.json`
+Each model uses its explicit train, validation, and held-out test datasets. Models and feature-importance artifacts are written to:
+
+- **Long model** → `outputs/1440/models/xgboost/long/`
+- **Short model** → `outputs/1440/models/xgboost/short/`
 
 ### Step 8 — Backtest
 
 ```bash
-python src/experiments/portfolio_backtest.py
+python -m src.experiments.portfolio_backtest --broker-id 1440
 ```
 
-Runs a full simulation with position management. Results saved to `outputs/1470`.
+Runs a full simulation with position management. Results are saved to `outputs/1440/backtest/`.
+
+PowerShell runner examples under `script/` expose the same workflow. Training runners define `$BrokerId` near the top, while daily/test runners accept `-BrokerId`; `run_train_xgboost.ps1` trains both long and short models.
 
 ---
 
@@ -367,6 +384,8 @@ Runs a full simulation with position management. Results saved to `outputs/1470`
 | 3 | **Stock parquet update** — fetch missing price data for all stocks seen in the window |
 | 4 | **Feature computation** — compute `z_t`, `c_t`, `a_t`, `s_t`, `m_t`, `bias_60d`, `net_buy_amt_60d` |
 | 5 | **Inference** — run HMM (rolling 120-day window) + XGBoost + write signal CSV |
+
+The `--broker-id` value selects the complete deployed model stack from `outputs/{broker_id}/models/` and writes signals to that broker's `daily/` directory. It is required to prevent accidentally pairing one broker's data with another broker's models.
 
 Key behaviors:
 - Lazy API authentication — only authenticates when a data fetch is actually needed
@@ -407,14 +426,14 @@ Each observation `o_t` for a given (date, stock, broker) triple is:
 |---------|-------------|
 | `bias_60d` | 60-day price bias (price deviation from rolling mean) |
 | `net_buy_amt_60d` | 60-day cumulative broker net buy amount |
-| `prob_S0` … `prob_S9` | HMM state probability distribution (10 features) |
+| `prob_S0` … `prob_S{N-1}` | Broker-specific HMM state probability distribution |
 
-**Total XGBoost features: 17**
+**Total XGBoost features: `7 + N`**, where `N` is the selected HMM state count. Model feature names are loaded from XGBoost metadata at inference time.
 
 ### HMM Configuration
 
 - Emission type: Full covariance Gaussian Mixture
-- State count: 10 (selected via BIC)
+- State count: selected per broker via BIC (10 for the original `1440` model)
 - Initialization: K-Means clustering on observation vectors
 - Fitting: Baum-Welch EM (100–200 iterations)
 - Inference: Viterbi decoding over rolling 120-day windows (no lookahead bias)
@@ -429,7 +448,7 @@ Each observation `o_t` for a given (date, stock, broker) triple is:
 
 ## Output Format
 
-`outputs/daily/signals_{YYYY-MM-DD}.csv`
+`outputs/{broker_id}/daily/signals_{YYYY-MM-DD}.csv`
 
 | Column | Description |
 |--------|-------------|
@@ -443,7 +462,7 @@ Each observation `o_t` for a given (date, stock, broker) triple is:
 | `m_t` | 5-day average flow |
 | `bias_60d` | 60-day price bias |
 | `net_buy_amt_60d` | 60-day cumulative net buy amount |
-| `prob_S0` … `prob_S9` | HMM state probabilities (10 columns) |
+| `prob_S0` … `prob_S{N-1}` | Broker-specific HMM state probabilities |
 | `pred_prob_long` | XGBoost long probability (0–1) |
 | `pred_prob_short` | XGBoost short probability (0–1) |
 | `signal_long` | Binary long signal (1 if `pred_prob_long ≥ 0.6`) |
@@ -701,10 +720,10 @@ This is for deploying the model from experiments to production.
 
 Run:
 ```bash
-python src/test_pipeline.py
+python src/test_pipeline.py --broker-id 1440
 
 # Or via PowerShell
-.\script\run_test_pipeline.ps1
+.\script\run_test_pipeline.ps1 -BrokerId "1440"
 ```
 
 ---
