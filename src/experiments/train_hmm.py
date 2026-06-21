@@ -152,14 +152,8 @@ def train_model_with_progress(
     progress_bar = tqdm(range(max_iterations), desc="Training HMM", unit="iter")
     previous_loglik = None
 
-    n_features = observations.shape[1]
-
     for iteration_idx in progress_bar:
         model.fit(observations, lengths=lengths)
-
-        # Regularize covariance to prevent singular matrix crash (full covariance only)
-        if covariance_type == "full":
-            model.covars_ += np.eye(n_features)[None, :, :] * 1e-4
 
         current_loglik = model.score(observations, lengths=lengths)
         log_likelihood_history.append(float(current_loglik))
