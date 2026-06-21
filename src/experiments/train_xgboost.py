@@ -8,7 +8,7 @@ import os
 import sys
 
 # 解決 matplotlib 中文顯示問題
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] 
+plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 # ARGPARSE Setup
@@ -33,7 +33,7 @@ except Exception as e:
     sys.exit()
 
 # 定義特徵 (無標準化，依賴前處理)
-prob_cols = [f'prob_S{i}' for i in range(10)]
+prob_cols = sorted([c for c in df_train_full.columns if c.startswith('prob_S')])
 feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'] + prob_cols
 
 # ---------------------------------------------------------
@@ -80,14 +80,14 @@ clf = xgb.XGBClassifier(
     eval_metric='auc',          
     early_stopping_rounds=50,   
     random_state=42,
-    n_jobs=-1                   
+    n_jobs=-1
 )
 
 # 使用 Train 訓練，並使用 Val 作為 early stopping 的依據
 clf.fit(
     X_train, y_train,
     eval_set=[(X_train, y_train), (X_val, y_val)],
-    verbose=50  
+    verbose=50
 )
 
 print(f"\n✅ 訓練完成！最佳迭代次數 (Best Iteration): {clf.best_iteration}")
@@ -177,29 +177,16 @@ print("="*80)
 print("💡 備註：這份成績代表了模型未來遇到全新數據時，最客觀的期望表現。")
 
 
-print("\n5. 繪製並儲存特徵重要性 (Feature Importance)...")
-# ==========================================
-# 5. 特徵重要性分析與儲存
-# ==========================================
+print("\n5. 儲存模型與特徵重要性...")
+os.makedirs('./outputs/models', exist_ok=True)
+
 importance_df = pd.DataFrame({
     'Feature': feature_cols,
     'Importance': clf.feature_importances_
-}).sort_values(by='Importance', ascending=True)
-
-plt.figure(figsize=(10, 8))
-plt.barh(importance_df['Feature'], importance_df['Importance'], color='skyblue', edgecolor='black')
-plt.title('XGBoost 量化策略特徵重要性 (Feature Importance)', fontsize=16)
-plt.xlabel('重要性分數 (Gain)', fontsize=12)
-plt.ylabel('特徵名稱', fontsize=12)
-plt.grid(axis='x', linestyle='--', alpha=0.7)
-plt.tight_layout()
-
-os.makedirs('./outputs/models', exist_ok=True)
-plt.savefig('./outputs/models/xgboost_feature_importance.png', dpi=300)
-print("✅ 特徵重要性圖表已儲存至: ./outputs/models/xgboost_feature_importance.png")
+}).sort_values(by='Importance', ascending=False)
+importance_df.to_csv('./outputs/models/xgboost_feature_importance.csv', index=False)
+print("✅ 特徵重要性已儲存至: ./outputs/models/xgboost_feature_importance.csv")
 
 model_path = './outputs/models/xgb_trading_model.json'
 clf.save_model(model_path)
 print(f"✅ 模型已儲存至: {model_path}")
-
-plt.show()
