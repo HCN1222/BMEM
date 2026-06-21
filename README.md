@@ -45,7 +45,7 @@ The system is designed to run daily and outputs a ranked signal CSV indicating w
 
 The results below are from the original `1440` model and are retained as the project baseline.
 
-![Top-N Strategy vs 0050](outputs/1440/backtest/equity_curve_top_n_comparison.png)
+![Top-N Strategy vs 0050](img/equity_curve_top_n_comparison.png)
 
 | Strategy | Total Return | Max Drawdown | Trades | Win Rate |
 |----------|-------------|--------------|--------|----------|
@@ -572,7 +572,7 @@ Entry requires `pred_prob_long ≥ 0.62` (threshold + 0.02 buffer above the nomi
 
 ### Chart 1 — Top-N Strategy Comparison vs 0050
 
-![Top-N Comparison](outputs/1440/backtest/equity_curve_top_n_comparison.png)
+![Top-N Comparison](img/equity_curve_top_n_comparison.png)
 
 This chart overlays the equity curves and drawdown profiles for Top-1, Top-3, and Top-5 concentration levels against the 0050 ETF benchmark.
 
@@ -597,7 +597,7 @@ This chart overlays the equity curves and drawdown profiles for Top-1, Top-3, an
 
 ### Chart 2 — EMA Smoothing Comparison: Top-1
 
-![EMA Top-1](outputs/1440/backtest/equity_curve_ema_long_top1_comparison.png)
+![EMA Top-1](img/equity_curve_ema_long_top1_comparison.png)
 
 For Top-1, EMA smoothing of the long probability **uniformly degrades performance:**
 
@@ -620,7 +620,7 @@ The raw signal at Top-1 produces only **33 trades** with a remarkable **69.7% wi
 
 ### Chart 3 — EMA Smoothing Comparison: Top-3
 
-![EMA Top-3](outputs/1440/backtest/equity_curve_ema_long_top3_comparison.png)
+![EMA Top-3](img/equity_curve_ema_long_top3_comparison.png)
 
 The picture inverts at Top-3. EMA smoothing **monotonically improves** both return and MDD:
 
@@ -640,7 +640,7 @@ The picture inverts at Top-3. EMA smoothing **monotonically improves** both retu
 
 ### Chart 4 — EMA Smoothing Comparison: Top-5
 
-![EMA Top-5](outputs/1440/backtest/equity_curve_ema_long_top5_comparison.png)
+![EMA Top-5](img/equity_curve_ema_long_top5_comparison.png)
 
 Top-5 shows a **non-monotonic EMA response**, with EMA-5 emerging as the sweet spot:
 
