@@ -23,13 +23,13 @@ Test 1b  compute_observation_features replication
 Test 2   HMM probability replication  [controlled by RUN_INFERENCE flag]
          Re-runs compute_rolling_hmm_proba on final_vectors_eval.parquet and
          compares the output prob_S0...S9 values against the reference stored in
-         xgb_dataset_long_eval.parquet (produced by prepare_xgb_data.py).
+         evaluation.parquet (produced by prepare_xgb_data.py).
          Two sub-tests:
            2a  groupby sequence_id   - exact replication of prepare_xgb_data.py
            2b  groupby stock+trader  - pipeline_functions.py grouping
 
 Test 3   Long XGBoost signal quality
-         Loads xgb_dataset_long_eval.parquet (ground-truth features + prob_S columns),
+         Loads evaluation.parquet (ground-truth features + prob_S columns),
          runs generate_signals, and reports precision / recall / F1 at threshold 0.6.
 
 Test 4   Short XGBoost signal quality
@@ -80,8 +80,8 @@ def configure_paths(paths):
     BROKER_ID = paths.broker_id
     FINAL_VECTORS_EVAL = paths.hmm_data_dir / "final_vectors_eval.parquet"
     HMM_EVAL_NPZ = paths.hmm_data_dir / "hmm_data_eval.npz"
-    XGB_LONG_EVAL = paths.xgboost_data_dir("long") / "test.parquet"
-    XGB_SHORT_EVAL = paths.xgboost_data_dir("short") / "test.parquet"
+    XGB_LONG_EVAL = paths.xgboost_data_dir("long") / "evaluation.parquet"
+    XGB_SHORT_EVAL = paths.xgboost_data_dir("short") / "evaluation.parquet"
     HMM_PARAMS = paths.hmm_model_path
     XGB_LONG_MODEL = paths.xgboost_model_path("long")
     XGB_SHORT_MODEL = paths.xgboost_model_path("short")
@@ -321,7 +321,7 @@ def _rolling_predict_proba_seq(sequence_features, model, window=120):
 def test_hmm_probability_replication() -> TestResult:
     """
     Re-runs the rolling HMM inference and compares against the prob_S columns
-    stored in xgb_dataset_long_eval.parquet (written by prepare_xgb_data.py).
+    stored in evaluation.parquet (written by prepare_xgb_data.py).
 
     Two sub-tests:
       2a  groupby sequence_id  — exact match with prepare_xgb_data.py
@@ -491,24 +491,24 @@ def _xgb_metrics(t: TestResult, df: pd.DataFrame, direction: str,
 
 
 def test_long_xgb_signals() -> TestResult:
-    """Verify long XGBoost model signals against target_y in xgb_dataset_long_eval."""
+    """Verify long XGBoost model signals against target_y in evaluation.parquet (long)."""
     t = TestResult("Test 3  Long XGBoost signal quality  (threshold=0.6)")
 
     df = pd.read_parquet(XGB_LONG_EVAL)
-    t.info(f"xgb_dataset_long_eval rows : {len(df):,}")
-    t.info(f"Positive rate (target_y=1) : {df['target_y'].mean()*100:.2f}%")
+    t.info(f"evaluation.parquet (long) rows : {len(df):,}")
+    t.info(f"Positive rate (target_y=1)     : {df['target_y'].mean()*100:.2f}%")
 
     _xgb_metrics(t, df, 'long', XGB_LONG_MODEL, threshold=0.6)
     return t
 
 
 def test_short_xgb_signals() -> TestResult:
-    """Verify short XGBoost model signals against target_y in xgb_dataset_short_eval."""
+    """Verify short XGBoost model signals against target_y in evaluation.parquet (short)."""
     t = TestResult("Test 4  Short XGBoost signal quality  (threshold=0.8)")
 
     df = pd.read_parquet(XGB_SHORT_EVAL)
-    t.info(f"xgb_dataset_short_eval rows : {len(df):,}")
-    t.info(f"Positive rate (target_y=1)  : {df['target_y'].mean()*100:.2f}%")
+    t.info(f"evaluation.parquet (short) rows : {len(df):,}")
+    t.info(f"Positive rate (target_y=1)      : {df['target_y'].mean()*100:.2f}%")
 
     _xgb_metrics(t, df, 'short', XGB_SHORT_MODEL, threshold=0.8)
     return t
@@ -530,8 +530,8 @@ def main():
     required = {
         "final_vectors_eval.parquet" : FINAL_VECTORS_EVAL,
         "hmm_data_eval.npz"          : HMM_EVAL_NPZ,
-        "xgb_dataset_long_eval"      : XGB_LONG_EVAL,
-        "xgb_dataset_short_eval"     : XGB_SHORT_EVAL,
+        "evaluation.parquet (long)"  : XGB_LONG_EVAL,
+        "evaluation.parquet (short)" : XGB_SHORT_EVAL,
         f"broker data dir ({BROKER_ID})": BROKER_DATA_DIR,
         "stock data dir"             : STOCK_DATA_DIR,
         "xgb long model"             : XGB_LONG_MODEL,

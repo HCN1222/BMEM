@@ -24,11 +24,11 @@ parser.add_argument('--output-dir', type=Path, help='Override the broker backtes
 args = parser.parse_args()
 paths = paths_from_args(args)
 
-print("1. 載入 XGBoost 雙模型與 Eval 測試資料...")
+print("1. 載入 XGBoost 雙模型與 Evaluation 資料...")
 # ==========================================
 # 1. 載入模型與準備資料
 # ==========================================
-eval_path = args.eval_path or paths.xgboost_data_dir('long') / 'test.parquet'
+eval_path = args.eval_path or paths.xgboost_data_dir('long') / 'evaluation.parquet'
 model_long_path = args.model_long_path or paths.xgboost_model_path('long')
 model_short_path = args.model_short_path or paths.xgboost_model_path('short')
 stock_info_dir = args.stock_info_dir or paths.stock_dir
@@ -327,7 +327,7 @@ results = {}
 
 # 策略參數
 LONG_PROB_THRESHOLD = 0.6
-SHORT_PROB_THRESHOLD = 0.8 
+SHORT_PROB_THRESHOLD = 0.8
 TRAILING_STOP = 0.8        
 
 for n in n_values:

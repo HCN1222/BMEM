@@ -112,6 +112,16 @@ def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covarian
     return startprob, transmat, means, covars
 
 
+def _repair_covars(model: GaussianHMM, covariance_type: str, n_states: int):
+    """Symmetrize + add a small epsilon so a near-singular covariance becomes positive-definite again."""
+    if covariance_type == "full":
+        for i in range(n_states):
+            model.covars_[i] = (model.covars_[i] + model.covars_[i].T) / 2
+            np.fill_diagonal(model.covars_[i], model.covars_[i].diagonal() + 1e-5)
+    elif covariance_type == "diag":
+        model.covars_ = np.maximum(model.covars_, 1e-5)
+
+
 def train_model_with_progress(
     observations: np.ndarray,
     lengths: np.ndarray,
@@ -156,9 +166,16 @@ def train_model_with_progress(
     previous_loglik = None
 
     for iteration_idx in progress_bar:
-        model.fit(observations, lengths=lengths)
+        try:
+            model.fit(observations, lengths=lengths)
+            current_loglik = model.score(observations, lengths=lengths)
+        except (np.linalg.LinAlgError, ValueError) as e:
+            print(f"\n  WARNING: 第 {iteration_idx + 1} 次迭代 covariance 矩陣數值不穩定 ({e})，"
+                  f"套用正規化修正後重試一次...")
+            _repair_covars(model, covariance_type, n_states)
+            model.fit(observations, lengths=lengths)
+            current_loglik = model.score(observations, lengths=lengths)
 
-        current_loglik = model.score(observations, lengths=lengths)
         log_likelihood_history.append(float(current_loglik))
 
         if previous_loglik is None:

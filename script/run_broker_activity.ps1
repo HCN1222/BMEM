@@ -25,7 +25,7 @@ try {
 # 1360 Macquarie (港商麥格理)
 # 8960 HSBC (香港上海匯豐)
 # 7030 CHI-HO (致和)
-# 1660 CLSA (港商聯昌)
+# 1660 CLSA (港商聯昌) 沒在做了
 # 1400 Schroders (港商蘇皇)
 # 1560 Nomura (港商野村)
 $brokers = @(
@@ -37,7 +37,7 @@ $brokers = @(
     @{ Name = "Macquarie";     TraderId = 1360 },
     @{ Name = "HSBC";          TraderId = 8960 },
     @{ Name = "ChiHo";         TraderId = 7030 },
-    @{ Name = "CLSA";          TraderId = 1660 },
+    # @{ Name = "CLSA";          TraderId = 1660 },
     @{ Name = "Schroders";     TraderId = 1400 },
     @{ Name = "Nomura";        TraderId = 1560 }
 )

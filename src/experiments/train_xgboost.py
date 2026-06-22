@@ -24,14 +24,14 @@ parser.add_argument('--model-dir', type=Path, help='Override broker/side model o
 args = parser.parse_args()
 paths = paths_from_args(args)
 
-print("1. 載入 XGBoost 資料集 (Train / Val / Test)...")
+print("1. 載入 XGBoost 資料集 (Train / Validation / Evaluation)...")
 # ==========================================
 # 1. 載入資料與時間序列切分
 # ==========================================
 dataset_dir = paths.xgboost_data_dir(args.side)
 train_path = args.train_path or dataset_dir / 'train.parquet'
-val_path = args.val_path or dataset_dir / 'val.parquet'
-test_path = args.test_path or dataset_dir / 'test.parquet'
+val_path = args.val_path or dataset_dir / 'validation.parquet'
+test_path = args.test_path or dataset_dir / 'evaluation.parquet'
 
 try:
     df_train = pd.read_parquet(train_path)
@@ -52,7 +52,7 @@ y_train = df_train['target_y']
 X_val = df_val[feature_cols]
 y_val = df_val['target_y']
 
-# 最終封存的 Test Set (第5年)
+# 最終封存的 Evaluation Set
 X_test = df_test[feature_cols]
 y_test = df_test['target_y']
 
@@ -61,12 +61,12 @@ positive_count = y_train.sum()
 negative_count = len(y_train) - positive_count
 scale_weight = negative_count / positive_count if positive_count > 0 else 1.0
 
-print(f"-> Train (前3年) 總筆數: {len(df_train):,} | 正樣本: {positive_count:,} | 權重比: {scale_weight:.2f}")
-print(f"-> Val   (第4年) 總筆數: {len(df_val):,} | 正樣本: {y_val.sum():,}")
-print(f"-> Test  (第5年) 總筆數: {len(df_test):,} | 正樣本: {y_test.sum():,} (終極封存測試集)")
+print(f"-> Train      總筆數: {len(df_train):,} | 正樣本: {positive_count:,} | 權重比: {scale_weight:.2f}")
+print(f"-> Validation 總筆數: {len(df_val):,} | 正樣本: {y_val.sum():,}")
+print(f"-> Evaluation 總筆數: {len(df_test):,} | 正樣本: {y_test.sum():,} (終極封存測試集)")
 
 
-print("\n2. 初始化並訓練 XGBoost 模型 (使用 Val 進行 Early Stopping)...")
+print("\n2. 初始化並訓練 XGBoost 模型 (使用 Validation 進行 Early Stopping)...")
 # ==========================================
 # 2. 模型設定與訓練
 # ==========================================
@@ -151,7 +151,7 @@ best_threshold = best_result["threshold"]
 print(f"\n[OK] 暴力搜索結束，決定最佳信心門檻為: {best_threshold:.2f} (Validation F1: {best_result['f1']:.4f})")
 
 
-print("\n4. 終極實戰體檢：使用 Test Set (Evaluation) 進行最終驗證...")
+print("\n4. 終極實戰體檢：使用 Evaluation Set 進行最終驗證...")
 # ==========================================
 # 4. 一次性解封測試 (最終成績單)
 # ==========================================

@@ -145,8 +145,8 @@ BMEM/
 │           │   ├── final_vectors_{train,eval}.parquet
 │           │   └── hmm_data_{train,eval}.npz
 │           └── xgboost/
-│               ├── long/{train,val,test}.parquet
-│               └── short/{train,val,test}.parquet
+│               ├── long/{train,validation,evaluation}.parquet
+│               └── short/{train,validation,evaluation}.parquet
 │
 ├── outputs/
 │   └── {broker_id}/
@@ -342,12 +342,14 @@ After selecting the state count from Step 4, this command trains the deployed mo
 python -m src.experiments.prepare_xgb_data --broker-id 1440
 ```
 
-Runs rolling HMM inference (120-day window, no lookahead), joins forward returns, and creates direction-specific labels (+10%/-10% thresholds).
+Train and Evaluation are kept separate throughout: Train rows reuse the static posterior probabilities already computed during `train_hmm.py`'s EM fit, while Evaluation rows get genuine rolling HMM inference (120-day window, no lookahead) so the held-out set never benefits from in-sample information. Forward returns are joined and direction-specific labels (+10%/-10% thresholds) are created for both sides.
+
+The Evaluation split boundary is `is_eval` (preprocess.py's per-stock gap detection), not a fixed calendar date. Validation is carved out of the Train portion only — the last 25% by row count, with the cutoff snapped to the nearest multi-day market holiday so no stock's continuous sequence is split mid-stream.
 
 Outputs:
 
-- `data/preprocessed_data/1440/xgboost/long/{train,val,test}.parquet`
-- `data/preprocessed_data/1440/xgboost/short/{train,val,test}.parquet`
+- `data/preprocessed_data/1440/xgboost/long/{train,validation,evaluation}.parquet`
+- `data/preprocessed_data/1440/xgboost/short/{train,validation,evaluation}.parquet`
 
 ### Step 7 — Train XGBoost Models
 
