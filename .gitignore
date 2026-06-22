@@ -2,3 +2,4 @@
 **/.ipynb_checkpoints
 outputs/daily
 data/
+src\experiments\__pycache__
