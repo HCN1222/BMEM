@@ -1,4 +1,9 @@
 .env
 **/.ipynb_checkpoints
-outputs/daily
+outputs/1440/daily
 data/
+src\experiments\__pycache__
+*.pyc
+.agents
+.claude
+.vscode

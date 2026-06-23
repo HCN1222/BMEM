@@ -4,8 +4,10 @@ import numpy as np
 import xgboost as xgb
 from sklearn.metrics import classification_report, precision_score, recall_score, roc_auc_score, f1_score
 import matplotlib.pyplot as plt
-import os
 import sys
+from pathlib import Path
+
+from src.utils.paths import add_broker_path_args, paths_from_args
 
 # 解決 matplotlib 中文顯示問題
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] 
@@ -13,37 +15,35 @@ plt.rcParams['axes.unicode_minus'] = False
 
 # ARGPARSE Setup
 parser = argparse.ArgumentParser(description='Train XGBoost Model')
-parser.add_argument('--train_path', type=str, default='./data/preprocessed_data/xgb_dataset_short_train.parquet', help='Path to training data')
-parser.add_argument('--eval_path', type=str, default='./data/preprocessed_data/xgb_dataset_short_eval.parquet', help='Path to evaluation data')
+add_broker_path_args(parser)
+parser.add_argument('--side', choices=['long', 'short'], required=True, help='Trading model direction')
+parser.add_argument('--train-path', '--train_path', type=Path, help='Override training data')
+parser.add_argument('--val-path', '--val_path', type=Path, help='Override validation data')
+parser.add_argument('--test-path', '--test_path', '--eval_path', type=Path, help='Override held-out test data')
+parser.add_argument('--model-dir', type=Path, help='Override broker/side model output directory')
 args = parser.parse_args()
+paths = paths_from_args(args)
 
-print("1. 載入並切分 XGBoost 資料集 (Train / Val / Test)...")
+print("1. 載入 XGBoost 資料集 (Train / Validation / Evaluation)...")
 # ==========================================
 # 1. 載入資料與時間序列切分
 # ==========================================
-train_path = args.train_path
-eval_path = args.eval_path
+dataset_dir = paths.xgboost_data_dir(args.side)
+train_path = args.train_path or dataset_dir / 'train.parquet'
+val_path = args.val_path or dataset_dir / 'validation.parquet'
+test_path = args.test_path or dataset_dir / 'evaluation.parquet'
 
 try:
-    # 讀取完整資料
-    df_train_full = pd.read_parquet(train_path)
-    df_test = pd.read_parquet(eval_path)  # 原本的 eval 變成最終 Test Set
+    df_train = pd.read_parquet(train_path)
+    df_val = pd.read_parquet(val_path)
+    df_test = pd.read_parquet(test_path)
 except Exception as e:
     print(f"檔案讀取失敗: {e}")
     sys.exit()
 
 # 定義特徵 (無標準化，依賴前處理)
-prob_cols = [f'prob_S{i}' for i in range(10)]
+prob_cols = [c for c in df_train.columns if c.startswith('prob_S')]
 feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'] + prob_cols
-
-# ---------------------------------------------------------
-# 將 4 年的 df_train_full 切分為 Train (前3年, 75%) 與 Val (第4年, 25%)
-# ---------------------------------------------------------
-split_ratio = 0.75
-split_idx = int(len(df_train_full) * split_ratio)
-
-df_train = df_train_full.iloc[:split_idx].copy()
-df_val = df_train_full.iloc[split_idx:].copy()
 
 # 準備模型輸入的 X, y
 X_train = df_train[feature_cols]
@@ -52,7 +52,7 @@ y_train = df_train['target_y']
 X_val = df_val[feature_cols]
 y_val = df_val['target_y']
 
-# 最終封存的 Test Set (第5年)
+# 最終封存的 Evaluation Set
 X_test = df_test[feature_cols]
 y_test = df_test['target_y']
 
@@ -61,12 +61,12 @@ positive_count = y_train.sum()
 negative_count = len(y_train) - positive_count
 scale_weight = negative_count / positive_count if positive_count > 0 else 1.0
 
-print(f"-> Train (前3年) 總筆數: {len(df_train):,} | 正樣本: {positive_count:,} | 權重比: {scale_weight:.2f}")
-print(f"-> Val   (第4年) 總筆數: {len(df_val):,} | 正樣本: {y_val.sum():,}")
-print(f"-> Test  (第5年) 總筆數: {len(df_test):,} | 正樣本: {y_test.sum():,} (終極封存測試集)")
+print(f"-> Train      總筆數: {len(df_train):,} | 正樣本: {positive_count:,} | 權重比: {scale_weight:.2f}")
+print(f"-> Validation 總筆數: {len(df_val):,} | 正樣本: {y_val.sum():,}")
+print(f"-> Evaluation 總筆數: {len(df_test):,} | 正樣本: {y_test.sum():,} (終極封存測試集)")
 
 
-print("\n2. 初始化並訓練 XGBoost 模型 (使用 Val 進行 Early Stopping)...")
+print("\n2. 初始化並訓練 XGBoost 模型 (使用 Validation 進行 Early Stopping)...")
 # ==========================================
 # 2. 模型設定與訓練
 # ==========================================
@@ -90,7 +90,7 @@ clf.fit(
     verbose=50  
 )
 
-print(f"\n✅ 訓練完成！最佳迭代次數 (Best Iteration): {clf.best_iteration}")
+print(f"\n[OK] 訓練完成！最佳迭代次數 (Best Iteration): {clf.best_iteration}")
 
 
 print("\n3. 使用 Validation Set 進行暴力窮舉尋找最佳門檻 (Threshold Tuning)...")
@@ -148,10 +148,10 @@ for res in top_7_sorted_by_t:
 best_result = top_7_f1_results[0]
 best_threshold = best_result["threshold"]
 
-print(f"\n✅ 暴力搜索結束，決定最佳信心門檻為: {best_threshold:.2f} (Validation F1: {best_result['f1']:.4f})")
+print(f"\n[OK] 暴力搜索結束，決定最佳信心門檻為: {best_threshold:.2f} (Validation F1: {best_result['f1']:.4f})")
 
 
-print("\n4. 終極實戰體檢：使用 Test Set (Evaluation) 進行最終驗證...")
+print("\n4. 終極實戰體檢：使用 Evaluation Set 進行最終驗證...")
 # ==========================================
 # 4. 一次性解封測試 (最終成績單)
 # ==========================================
@@ -174,7 +174,7 @@ print(f" 實戰勝率 (P) : {test_precision*100:.2f}%")
 print(f" 捕捉率 (R)   : {test_recall*100:.2f}%")
 print(f" F1 Score     : {test_f1:.4f}")
 print("="*80)
-print("💡 備註：這份成績代表了模型未來遇到全新數據時，最客觀的期望表現。")
+print("Note: 這份成績代表了模型未來遇到全新數據時，最客觀的期望表現。")
 
 
 print("\n5. 繪製並儲存特徵重要性 (Feature Importance)...")
@@ -186,20 +186,27 @@ importance_df = pd.DataFrame({
     'Importance': clf.feature_importances_
 }).sort_values(by='Importance', ascending=True)
 
-plt.figure(figsize=(10, 8))
-plt.barh(importance_df['Feature'], importance_df['Importance'], color='skyblue', edgecolor='black')
-plt.title('XGBoost 量化策略特徵重要性 (Feature Importance)', fontsize=16)
-plt.xlabel('重要性分數 (Gain)', fontsize=12)
-plt.ylabel('特徵名稱', fontsize=12)
-plt.grid(axis='x', linestyle='--', alpha=0.7)
-plt.tight_layout()
+model_dir = args.model_dir or paths.xgboost_model_dir(args.side)
+model_dir.mkdir(parents=True, exist_ok=True)
+feature_importance_plot_path = model_dir / 'xgboost_feature_importance.png'
+feature_importance_csv_path = model_dir / 'xgboost_feature_importance.csv'
 
-os.makedirs('./outputs/models', exist_ok=True)
-plt.savefig('./outputs/models/xgboost_feature_importance.png', dpi=300)
-print("✅ 特徵重要性圖表已儲存至: ./outputs/models/xgboost_feature_importance.png")
+try:
+    plt.figure(figsize=(10, 8))
+    plt.barh(importance_df['Feature'], importance_df['Importance'], color='skyblue', edgecolor='black')
+    plt.title('XGBoost 量化策略特徵重要性 (Feature Importance)', fontsize=16)
+    plt.xlabel('重要性分數 (Gain)', fontsize=12)
+    plt.ylabel('特徵名稱', fontsize=12)
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(feature_importance_plot_path, dpi=300)
+    plt.show()
+    print(f"[OK] 特徵重要性圖表已儲存至: {feature_importance_plot_path}")
+except Exception as e:
+    plt.close()
+    importance_df.to_csv(feature_importance_csv_path, index=False, encoding='utf-8-sig')
+    print(f"[WARN] 特徵重要性圖表繪製失敗 ({e})，已改存 CSV: {feature_importance_csv_path}")
 
-model_path = './outputs/models/xgb_trading_model.json'
-clf.save_model(model_path)
-print(f"✅ 模型已儲存至: {model_path}")
-
-plt.show()
+model_path = model_dir / 'xgb_trading_model.json'
+clf.save_model(str(model_path))
+print(f"[OK] 模型已儲存至: {model_path}")

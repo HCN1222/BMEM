@@ -20,14 +20,17 @@ from hmmlearn.hmm import GaussianHMM
 from sklearn.cluster import KMeans
 from tqdm import tqdm
 
+from src.utils.paths import add_broker_path_args, paths_from_args
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Train a Gaussian HMM from concatenated multi-sequence observations stored in a .npz file."
     )
 
-    parser.add_argument( "--input_file", type=str, required=True, help="Path to input .npz file." )
-    parser.add_argument( "--outdir", type=str, required=True, help="Name or path of output directory. Default: output" )
+    add_broker_path_args(parser)
+    parser.add_argument( "--input-file", "--input_file", type=Path, help="Override the broker HMM training .npz file." )
+    parser.add_argument( "--outdir", type=Path, help="Override the deployed HMM model directory." )
     parser.add_argument( "--iterations", type=int, default=100, help="Maximum number of EM iterations. Default: 100" )
     parser.add_argument( "--n_states", type=int, required=True, help="Number of hidden states." )
     parser.add_argument( "--covariance_type", type=str, default="full", choices=["full", "diag"], help='Covariance type for Gaussian emissions. Default: full')
@@ -109,6 +112,16 @@ def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covarian
     return startprob, transmat, means, covars
 
 
+def _repair_covars(model: GaussianHMM, covariance_type: str, n_states: int):
+    """Symmetrize + add a small epsilon so a near-singular covariance becomes positive-definite again."""
+    if covariance_type == "full":
+        for i in range(n_states):
+            model.covars_[i] = (model.covars_[i] + model.covars_[i].T) / 2
+            np.fill_diagonal(model.covars_[i], model.covars_[i].diagonal() + 1e-5)
+    elif covariance_type == "diag":
+        model.covars_ = np.maximum(model.covars_, 1e-5)
+
+
 def train_model_with_progress(
     observations: np.ndarray,
     lengths: np.ndarray,
@@ -152,16 +165,17 @@ def train_model_with_progress(
     progress_bar = tqdm(range(max_iterations), desc="Training HMM", unit="iter")
     previous_loglik = None
 
-    n_features = observations.shape[1]
-
     for iteration_idx in progress_bar:
-        model.fit(observations, lengths=lengths)
+        try:
+            model.fit(observations, lengths=lengths)
+            current_loglik = model.score(observations, lengths=lengths)
+        except (np.linalg.LinAlgError, ValueError) as e:
+            print(f"\n  WARNING: 第 {iteration_idx + 1} 次迭代 covariance 矩陣數值不穩定 ({e})，"
+                  f"套用正規化修正後重試一次...")
+            _repair_covars(model, covariance_type, n_states)
+            model.fit(observations, lengths=lengths)
+            current_loglik = model.score(observations, lengths=lengths)
 
-        # Regularize covariance to prevent singular matrix crash (full covariance only)
-        if covariance_type == "full":
-            model.covars_ += np.eye(n_features)[None, :, :] * 1e-4
-
-        current_loglik = model.score(observations, lengths=lengths)
         log_likelihood_history.append(float(current_loglik))
 
         if previous_loglik is None:
@@ -219,6 +233,7 @@ def save_results(
     )
 
     metadata = {
+        "broker_id": getattr(args, "broker_id", None),
         "input_file": str(args.input_file),
         "outdir": str(outdir),
         "iterations": int(args.iterations),
@@ -250,11 +265,15 @@ def print_summary(feature_names: np.ndarray, model: GaussianHMM):
 
 def main():
     args = parse_args()
+    paths = paths_from_args(args)
 
-    input_path = Path(args.input_file)
+    input_path = args.input_file or paths.hmm_data_dir / "hmm_data_train.npz"
     validate_input_file(input_path)
 
-    outdir = create_output_dir(input_path, args.outdir)
+    outdir = args.outdir or paths.hmm_model_dir
+    outdir.mkdir(parents=True, exist_ok=True)
+    args.input_file = str(input_path)
+    args.outdir = str(outdir)
 
     lengths, observations, feature_names = load_dataset(input_path)
 

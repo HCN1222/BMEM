@@ -1,5 +1,12 @@
 # run_broker_activity.ps1
-# Loops through broker trader_id list and downloads broker activity
+# Loops through the configured broker IDs and downloads broker activity.
+
+param(
+    [string]$StartDate = "2021-06-30",
+    [string]$EndDate = (Get-Date -Format "yyyy-MM-dd"),
+    [ValidateSet("parquet", "csv")]
+    [string]$Format = "parquet"
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -7,10 +14,6 @@ $ErrorActionPreference = "Stop"
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 } catch {}
-
-$start  = "2021-06-30"
-$end    = "2026-02-11"
-$format = "parquet"
 
 # Broker list (ASCII-only to avoid script encoding/parser issues on Windows PowerShell 5.1)
 # Mapping reference:
@@ -22,7 +25,7 @@ $format = "parquet"
 # 1360 Macquarie (港商麥格理)
 # 8960 HSBC (香港上海匯豐)
 # 7030 CHI-HO (致和)
-# 1660 CLSA (港商聯昌)
+# 1660 CLSA (港商聯昌) 沒在做了
 # 1400 Schroders (港商蘇皇)
 # 1560 Nomura (港商野村)
 $brokers = @(
@@ -34,23 +37,28 @@ $brokers = @(
     @{ Name = "Macquarie";     TraderId = 1360 },
     @{ Name = "HSBC";          TraderId = 8960 },
     @{ Name = "ChiHo";         TraderId = 7030 },
-    @{ Name = "CLSA";          TraderId = 1660 },
+    # @{ Name = "CLSA";          TraderId = 1660 },
     @{ Name = "Schroders";     TraderId = 1400 },
     @{ Name = "Nomura";        TraderId = 1560 }
 )
 
+$failedBrokers = @()
 foreach ($b in $brokers) {
-    Write-Host "=== Running: $($b.Name) (trader-id=$($b.TraderId)) ==="
+    Write-Host "=== Running: $($b.Name) (broker-id=$($b.TraderId)) ==="
 
-    & python ./src/experiments/download_broker_activity.py `
-        --start $start `
-        --end $end `
-        --trader-id $($b.TraderId) `
-        --format $format
+    & python -m src.experiments.download_broker_activity `
+        --start $StartDate `
+        --end $EndDate `
+        --broker-id $($b.TraderId) `
+        --format $Format
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning ("Command failed for {0} (trader-id={1}), exit code: {2}" -f $b.Name, $b.TraderId, $LASTEXITCODE)
-        # If you want to stop on first failure, uncomment:
-        # exit $LASTEXITCODE
+        Write-Warning ("Command failed for {0} (broker-id={1}), exit code: {2}" -f $b.Name, $b.TraderId, $LASTEXITCODE)
+        $failedBrokers += $b.TraderId
     }
+}
+
+if ($failedBrokers.Count -gt 0) {
+    Write-Error "Broker download failed for: $($failedBrokers -join ', ')"
+    exit 1
 }

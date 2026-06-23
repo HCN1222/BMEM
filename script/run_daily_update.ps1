@@ -1,32 +1,32 @@
 # run_daily_update.ps1
 #
-# Run the BMEM daily update pipeline for Merrill Lynch (broker 1440).
+# Run the BMEM daily update pipeline for one broker.
 # Fetches today's broker activity, computes HMM + XGBoost signals,
-# and writes outputs/daily/signals_YYYY-MM-DD.csv.
+# and writes outputs/{broker_id}/daily/signals_YYYY-MM-DD.csv.
 #
 # Usage (from repo root):
-#   .\script\run_daily_update.ps1                        # target = today
-#   .\script\run_daily_update.ps1 -Date "2026-04-16"     # specific date
+#   .\script\run_daily_update.ps1 -BrokerId "1440"
+#   .\script\run_daily_update.ps1 -BrokerId "1470" -Date "2026-04-16"
 #
 # Prerequisites:
 #   - FINMIND_API_KEY set in .env (or as an environment variable)
-#   - Trained HMM params  : outputs/models/HMM/trained_hmm_params.npz
-#   - Trained XGBoost     : outputs/models/XGBoost/long/xgb_trading_model.json
-#                           outputs/models/XGBoost/short/xgb_trading_model.json
-#   - Historical data     : data/brokers/1440/*.parquet
+#   - Trained HMM params  : outputs/{broker_id}/models/hmm/trained_hmm_params.npz
+#   - Trained XGBoost     : outputs/{broker_id}/models/xgboost/{long,short}/xgb_trading_model.json
+#   - Historical data     : data/brokers/{broker_id}/*.parquet
 #                           data/stocks/*.parquet
 
 param(
     [string]$Date     = (Get-Date -Format "yyyy-MM-dd"),
-    [string]$BrokerId = "1440",
+    [Parameter(Mandatory = $true)]
+    [string]$BrokerId,
     [string]$OutDir   = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = "C:\Users\hcn12\OneDrive\Desktop\NING\Github\BMEM"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $Script   = "$RepoRoot\src\daily_update.py"
-if (-not $OutDir) { $OutDir = "$RepoRoot\outputs\daily" }
+if (-not $OutDir) { $OutDir = "$RepoRoot\outputs\$BrokerId\daily" }
 
 Write-Host "=== BMEM Daily Update ==="
 Write-Host "  Target date : $Date"

@@ -3,16 +3,17 @@ XGBoost Long Model Rule Analysis
 Usage: conda run -n BMEM python analyze_xgb_model.py
 """
 
+import argparse
 import json
 import numpy as np
 import pandas as pd
 from collections import Counter, defaultdict
+from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")
 
-MODEL_PATH = "outputs/models/XGBoost/long/xgb_trading_model.json"
-OUTPUT_DIR = "outputs/models/XGBoost/long"
+from src.utils.paths import add_broker_path_args, paths_from_args
 
 FEATURE_NAMES = [
     "z_t", "c_t", "a_t", "s_t", "m_t",
@@ -105,8 +106,19 @@ def print_section(title):
     print(f"{'='*60}")
 
 def main():
+    parser = argparse.ArgumentParser(description="Analyze a broker-specific XGBoost model.")
+    add_broker_path_args(parser)
+    parser.add_argument('--side', choices=['long', 'short'], required=True)
+    parser.add_argument('--model-path', type=Path, help='Override the XGBoost model path')
+    parser.add_argument('--output-dir', type=Path, help='Override the analysis output directory')
+    args = parser.parse_args()
+    paths = paths_from_args(args)
+    model_path = args.model_path or paths.xgboost_model_path(args.side)
+    output_dir = args.output_dir or paths.analysis_dir / 'xgboost' / args.side
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     print("Loading model...")
-    model = load_model(MODEL_PATH)
+    model = load_model(model_path)
     trees = extract_trees(model)
     print(f"  Loaded {len(trees)} trees")
 
@@ -202,7 +214,7 @@ def main():
     axes[1].set_title("Leaf Value Distribution")
 
     plt.tight_layout()
-    out_path = f"{OUTPUT_DIR}/xgb_analysis.png"
+    out_path = output_dir / "xgb_analysis.png"
     plt.savefig(out_path, dpi=150)
     print(f"  Saved to: {out_path}")
 

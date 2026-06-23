@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 import pandas as pd
 from FinMind.data import DataLoader
+from src.utils.paths import add_broker_path_args, paths_from_args
 
 
 def daterange_business_days(start: str, end: str) -> list[str]:
@@ -35,20 +36,25 @@ def save_df(df: pd.DataFrame, out_path: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download Broker ( default: Merrill (1440) ) trading activity across all Taiwan stocks via FinMind."
+        description="Download one broker's trading activity across Taiwan stocks via FinMind."
     )
+    add_broker_path_args(parser)
     parser.add_argument("--start", required=True, help="YYYY-MM-DD (inclusive)")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD (inclusive)")
-    parser.add_argument("--trader-id", default="1440", help="券商代碼；美林預設 1440")
-    parser.add_argument("--outdir", default="./data/brokers", help="輸出資料夾（預設 ./data)")
+    parser.add_argument(
+        "--outdir",
+        type=Path,
+        help="Override the broker-specific output directory.",
+    )
     parser.add_argument("--sleep", type=float, default=0.1, help="每次 request 間隔秒數（預設 0.1)")
     parser.add_argument("--format", choices=["parquet", "csv"], default="parquet", help="輸出格式")
     args = parser.parse_args()
+    paths = paths_from_args(args)
 
     load_dotenv()
     token = os.environ["FINMIND_API_KEY"]
 
-    outdir = Path(f"{args.outdir}/{args.trader_id}")
+    outdir = args.outdir or paths.broker_raw_dir
     outdir.mkdir(parents=True, exist_ok=True)
 
     api = DataLoader()
@@ -62,7 +68,7 @@ def main():
     for i, d in enumerate(dates, 1):
         try:
             df = api.taiwan_stock_trading_daily_report(
-                securities_trader_id=str(args.trader_id),
+                securities_trader_id=args.broker_id,
                 date=d,
             )
 
@@ -118,7 +124,7 @@ def main():
 
     meta = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
-        "securities_trader_id": str(args.trader_id),
+        "securities_trader_id": args.broker_id,
         "start_date": args.start,
         "end_date": args.end,
         "rows": int(len(result)),

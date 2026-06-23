@@ -1,39 +1,61 @@
+import argparse
 import pandas as pd
 import numpy as np
 import xgboost as xgb
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import glob
-import os
 import sys
+from pathlib import Path
 from tqdm import tqdm
+
+from src.utils.paths import add_broker_path_args, paths_from_args
+from src.utils.stock_data import load_stock_data
 
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-print("1. 載入 XGBoost 雙模型與 Eval 測試資料...")
+parser = argparse.ArgumentParser(description='Run a broker-specific portfolio backtest.')
+add_broker_path_args(parser)
+parser.add_argument('--eval-path', type=Path, help='Override the long-side XGBoost test dataset')
+parser.add_argument('--model-long-path', type=Path, help='Override the long XGBoost model')
+parser.add_argument('--model-short-path', type=Path, help='Override the short XGBoost model')
+parser.add_argument('--stock-info-dir', type=Path, help='Override the shared stock data directory')
+parser.add_argument('--output-dir', type=Path, help='Override the broker backtest directory')
+args = parser.parse_args()
+paths = paths_from_args(args)
+
+print("1. 載入 XGBoost 雙模型與 Evaluation 資料...")
 # ==========================================
 # 1. 載入模型與準備資料
 # ==========================================
-eval_path = './data/preprocessed_data/xgb_dataset_long_test.parquet'
-model_long_path = './outputs/models/xgb_trading_model_long.json'
-model_short_path = './outputs/models/xgb_trading_model_short.json'
+eval_path = args.eval_path or paths.xgboost_data_dir('long') / 'evaluation.parquet'
+model_long_path = args.model_long_path or paths.xgboost_model_path('long')
+model_short_path = args.model_short_path or paths.xgboost_model_path('short')
+stock_info_dir = args.stock_info_dir or paths.stock_dir
+output_dir = args.output_dir or paths.backtest_dir
+output_dir.mkdir(parents=True, exist_ok=True)
 
 try:
     df_eval = pd.read_parquet(eval_path)
-
+    
+    # 載入做多模型
     clf_long = xgb.XGBClassifier()
     clf_long.load_model(model_long_path)
-
+    
+    # 載入做空模型
     clf_short = xgb.XGBClassifier()
     clf_short.load_model(model_short_path)
 except Exception as e:
     print(f"檔案讀取失敗: {e}")
     sys.exit()
 
-n_hmm_states = sum(1 for c in df_eval.columns if c.startswith('prob_S'))
-prob_cols = [f'prob_S{i}' for i in range(n_hmm_states)]
-feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'] + prob_cols
+feature_cols = clf_long.get_booster().feature_names
+short_feature_cols = clf_short.get_booster().feature_names
+if feature_cols and short_feature_cols and feature_cols != short_feature_cols:
+    raise ValueError("Long and short XGBoost models use different feature columns.")
+if not feature_cols:
+    prob_cols = [c for c in df_eval.columns if c.startswith('prob_S')]
+    feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d'] + prob_cols
 
 # XGBoost 預測雙向機率
 print("   -> 正在預測做多與做空機率...")
@@ -65,19 +87,15 @@ all_signal_stocks = set(df_eval['stock_id'].unique())
 kline_cache = {}
 
 for stock_id in tqdm(all_signal_stocks, desc="載入個股 K 線"):
-    _matches = glob.glob(f"./data/stocks/{stock_id}_2021-06-30_to_*.parquet")
-    kline_path = _matches[0] if _matches else ""
-    if os.path.exists(kline_path):
-        kdf = pd.read_parquet(kline_path)
+    kdf = load_stock_data(stock_info_dir, stock_id)
+    if not kdf.empty:
         kdf['date'] = kdf['date'].astype(str).str[:10]
         kdf = kdf.sort_values('date').set_index('date')
         kline_cache[stock_id] = kdf
 
 df_0050 = None
-_bm_matches = glob.glob("./data/stocks/0050_2021-06-30_to_*.parquet")
-benchmark_path = _bm_matches[0] if _bm_matches else ""
-if os.path.exists(benchmark_path):
-    df_0050 = pd.read_parquet(benchmark_path)
+df_0050 = load_stock_data(stock_info_dir, "0050")
+if not df_0050.empty:
     df_0050['date'] = df_0050['date'].astype(str).str[:10]
     df_0050 = df_0050.sort_values('date').set_index('date')
     
@@ -85,7 +103,7 @@ if os.path.exists(benchmark_path):
     SPLIT_DATE = '2025-06-18' 
     if SPLIT_DATE in df_0050.index or df_0050.index.max() >= SPLIT_DATE:
         df_0050.loc[df_0050.index >= SPLIT_DATE, 'close'] *= 4
-    print("成功載入 0050 作為大盤基準線。")
+    print("[OK] 成功載入 0050 作為大盤基準線。")
 
 # ==========================================
 # 3. 共用回測引擎函數 (新增買賣價格與模型機率紀錄)
@@ -309,7 +327,7 @@ results = {}
 
 # 策略參數
 LONG_PROB_THRESHOLD = 0.6
-SHORT_PROB_THRESHOLD = 0.8 
+SHORT_PROB_THRESHOLD = 0.8
 TRAILING_STOP = 0.8        
 
 for n in n_values:
@@ -378,8 +396,7 @@ ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
 plt.xticks(rotation=45)
 
 plt.tight_layout()
-os.makedirs('./outputs/backtest', exist_ok=True)
-save_path = './outputs/backtest/equity_curve_top_n_comparison.png'
+save_path = output_dir / 'equity_curve_top_n_comparison.png'
 plt.savefig(save_path, dpi=300)
 
 # ==========================================
@@ -434,7 +451,7 @@ row_win_rate += f" {'N/A':>10}"
 print(row_win_rate)
 
 print("="*85)
-print(f"圖表已成功儲存至: {save_path}")
+print(f"[OK] 圖表已成功儲存至: {save_path}")
 
 # ==========================================
 # 6. 輸出 Top-1 交易明細至 CSV
@@ -448,13 +465,15 @@ if len(top1_trades) > 0:
     df_top1_trades = pd.DataFrame(top1_trades)
     
     # 確保輸出目錄存在
-    os.makedirs('./outputs/backtest/reports', exist_ok=True)
-    csv_path = './outputs/backtest/reports/top1_trade_history.csv'
-
+    reports_dir = output_dir / 'reports'
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = reports_dir / 'top1_trade_history.csv'
+    
+    # 使用 utf-8-sig 編碼，避免在 Windows Excel 打開時中文變亂碼
     df_top1_trades.to_csv(csv_path, index=False, encoding='utf-8-sig')
-    print(f"Top-1 交易明細已成功儲存至: {csv_path}")
+    print(f"[OK] Top-1 交易明細已成功儲存至: {csv_path}")
 else:
-    print("Top-1 策略在此期間內沒有任何交易紀錄。")
+    print("[WARN] Top-1 策略在此期間內沒有任何交易紀錄。")
 
 # ==========================================
 # 7. EMA 平滑做多機率 對比回測 (Top-1, Top-3, Top-5)
@@ -526,9 +545,9 @@ for ema_n in EMA_N_VALUES:
     plt.xticks(rotation=45)
 
     plt.tight_layout()
-    ema_save_path = f'./outputs/backtest/equity_curve_ema_long_top{ema_n}_comparison.png'
+    ema_save_path = output_dir / f'equity_curve_ema_long_top{ema_n}_comparison.png'
     plt.savefig(ema_save_path, dpi=300)
-    print(f"   Top-{ema_n} 圖表已儲存至: {ema_save_path}")
+    print(f"   [OK] Top-{ema_n} 圖表已儲存至: {ema_save_path}")
     plt.close(fig2)
 
 # 輸出 EMA 對比表格 (每個 Top-N 一個區塊)

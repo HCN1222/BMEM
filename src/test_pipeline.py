@@ -23,19 +23,20 @@ Test 1b  compute_observation_features replication
 Test 2   HMM probability replication  [controlled by RUN_INFERENCE flag]
          Re-runs compute_rolling_hmm_proba on final_vectors_eval.parquet and
          compares the output prob_S0...S9 values against the reference stored in
-         xgb_dataset_long_eval.parquet (produced by prepare_xgb_data.py).
+         evaluation.parquet (produced by prepare_xgb_data.py).
          Two sub-tests:
            2a  groupby sequence_id   - exact replication of prepare_xgb_data.py
            2b  groupby stock+trader  - pipeline_functions.py grouping
 
 Test 3   Long XGBoost signal quality
-         Loads xgb_dataset_long_eval.parquet (ground-truth features + prob_S columns),
+         Loads evaluation.parquet (ground-truth features + prob_S columns),
          runs generate_signals, and reports precision / recall / F1 at threshold 0.6.
 
 Test 4   Short XGBoost signal quality
          Same as Test 3 but for the short model (threshold 0.8).
 """
 
+import argparse
 import sys
 from pathlib import Path
 import numpy as np
@@ -55,22 +56,37 @@ from pipeline_functions import (
     load_xgb_model,
     generate_signals,
     FEATURE_COLS,
-    XGB_FEATURE_COLS,
 )
+from utils.paths import add_broker_path_args, paths_from_args
 
 # ─── Reference file paths ──────────────────────────────────────────────────
-FINAL_VECTORS_EVAL  = _ROOT / "data/preprocessed_data/exp3/final_vectors_eval.parquet"
-HMM_EVAL_NPZ        = _ROOT / "data/preprocessed_data/exp3/hmm_data_eval.npz"
-XGB_LONG_EVAL       = _ROOT / "data/preprocessed_data/xgb_dataset_long_eval.parquet"
-XGB_SHORT_EVAL      = _ROOT / "data/preprocessed_data/xgb_dataset_short_eval.parquet"
-HMM_PARAMS          = _ROOT / "outputs/exp3/states_10/trained_hmm_params.npz"
-XGB_LONG_MODEL      = _ROOT / "outputs/models/long/xgb_trading_model.json"
-XGB_SHORT_MODEL     = _ROOT / "outputs/models/short/xgb_trading_model.json"
+BROKER_ID = None
+FINAL_VECTORS_EVAL = None
+HMM_EVAL_NPZ = None
+XGB_LONG_EVAL = None
+XGB_SHORT_EVAL = None
+HMM_PARAMS = None
+XGB_LONG_MODEL = None
+XGB_SHORT_MODEL = None
+BROKER_DATA_DIR = None
+STOCK_DATA_DIR = None
 
-# ─── Raw data paths (for Test 1b) ──────────────────────────────────────────
-# Must match the inputs used when preprocess.py generated final_vectors_eval.parquet
-BROKER_DATA_DIR = _ROOT / "data/brokers/1440"   # broker 1440 (Merrill Lynch)
-STOCK_DATA_DIR  = _ROOT / "data/stocks"
+
+def configure_paths(paths):
+    global BROKER_ID, FINAL_VECTORS_EVAL, HMM_EVAL_NPZ
+    global XGB_LONG_EVAL, XGB_SHORT_EVAL, HMM_PARAMS
+    global XGB_LONG_MODEL, XGB_SHORT_MODEL, BROKER_DATA_DIR, STOCK_DATA_DIR
+
+    BROKER_ID = paths.broker_id
+    FINAL_VECTORS_EVAL = paths.hmm_data_dir / "final_vectors_eval.parquet"
+    HMM_EVAL_NPZ = paths.hmm_data_dir / "hmm_data_eval.npz"
+    XGB_LONG_EVAL = paths.xgboost_data_dir("long") / "evaluation.parquet"
+    XGB_SHORT_EVAL = paths.xgboost_data_dir("short") / "evaluation.parquet"
+    HMM_PARAMS = paths.hmm_model_path
+    XGB_LONG_MODEL = paths.xgboost_model_path("long")
+    XGB_SHORT_MODEL = paths.xgboost_model_path("short")
+    BROKER_DATA_DIR = paths.broker_raw_dir
+    STOCK_DATA_DIR = paths.stock_dir
 
 # ─── Run flags ─────────────────────────────────────────────────────────────
 # Set RUN_INFERENCE = True to include Test 2 (HMM rolling inference, ~6 min).
@@ -193,7 +209,7 @@ def test_feature_computation() -> TestResult:
     broker_df['date'] = pd.to_datetime(broker_df['date'])
     broker_df = broker_df.drop_duplicates(subset=['date', 'stock_id'])
     if 'securities_trader_id' not in broker_df.columns:
-        broker_df['securities_trader_id'] = '1440'
+        broker_df['securities_trader_id'] = BROKER_ID
 
     t.info(f"Broker rows loaded  : {len(broker_df):,}")
 
@@ -305,7 +321,7 @@ def _rolling_predict_proba_seq(sequence_features, model, window=120):
 def test_hmm_probability_replication() -> TestResult:
     """
     Re-runs the rolling HMM inference and compares against the prob_S columns
-    stored in xgb_dataset_long_eval.parquet (written by prepare_xgb_data.py).
+    stored in evaluation.parquet (written by prepare_xgb_data.py).
 
     Two sub-tests:
       2a  groupby sequence_id  — exact match with prepare_xgb_data.py
@@ -319,7 +335,7 @@ def test_hmm_probability_replication() -> TestResult:
     df_eval['date'] = pd.to_datetime(df_eval['date'])
     df_ref_xgb['date'] = pd.to_datetime(df_ref_xgb['date'])
 
-    prob_cols = [f'prob_S{i}' for i in range(10)]
+    prob_cols = [c for c in df_ref_xgb.columns if c.startswith('prob_S')]
     t.info(f"Eval rows       : {len(df_eval):,}")
     t.info(f"XGB eval rows   : {len(df_ref_xgb):,}")
 
@@ -413,11 +429,17 @@ def _xgb_metrics(t: TestResult, df: pd.DataFrame, direction: str,
         return
 
     clf = load_xgb_model(str(model_path))
+    feature_cols = clf.get_booster().feature_names
+    if not feature_cols:
+        feature_cols = (
+            ['z_t', 'c_t', 'a_t', 's_t', 'm_t', 'bias_60d', 'net_buy_amt_60d']
+            + [c for c in df.columns if c.startswith('prob_S')]
+        )
     prob_col   = f'pred_prob_{direction}'
     signal_col = f'signal_{direction}'
 
     # Use only the XGB feature columns present in df
-    missing = [c for c in XGB_FEATURE_COLS if c not in df.columns]
+    missing = [c for c in feature_cols if c not in df.columns]
     if missing:
         t.check(False, "", f"Missing features: {missing}")
         return
@@ -425,10 +447,10 @@ def _xgb_metrics(t: TestResult, df: pd.DataFrame, direction: str,
     # generate_signals adds pred_prob_long, pred_prob_short, signal_long, signal_short
     # We call it with the correct threshold for the direction we care about
     if direction == 'long':
-        df_out = generate_signals(df, clf, clf,
+        df_out = generate_signals(df, clf, clf, feature_cols=feature_cols,
                                   long_threshold=threshold, short_threshold=1.1)
     else:
-        df_out = generate_signals(df, clf, clf,
+        df_out = generate_signals(df, clf, clf, feature_cols=feature_cols,
                                   long_threshold=1.1, short_threshold=threshold)
 
     y_true = df_out['target_y'].values
@@ -469,24 +491,24 @@ def _xgb_metrics(t: TestResult, df: pd.DataFrame, direction: str,
 
 
 def test_long_xgb_signals() -> TestResult:
-    """Verify long XGBoost model signals against target_y in xgb_dataset_long_eval."""
+    """Verify long XGBoost model signals against target_y in evaluation.parquet (long)."""
     t = TestResult("Test 3  Long XGBoost signal quality  (threshold=0.6)")
 
     df = pd.read_parquet(XGB_LONG_EVAL)
-    t.info(f"xgb_dataset_long_eval rows : {len(df):,}")
-    t.info(f"Positive rate (target_y=1) : {df['target_y'].mean()*100:.2f}%")
+    t.info(f"evaluation.parquet (long) rows : {len(df):,}")
+    t.info(f"Positive rate (target_y=1)     : {df['target_y'].mean()*100:.2f}%")
 
     _xgb_metrics(t, df, 'long', XGB_LONG_MODEL, threshold=0.6)
     return t
 
 
 def test_short_xgb_signals() -> TestResult:
-    """Verify short XGBoost model signals against target_y in xgb_dataset_short_eval."""
+    """Verify short XGBoost model signals against target_y in evaluation.parquet (short)."""
     t = TestResult("Test 4  Short XGBoost signal quality  (threshold=0.8)")
 
     df = pd.read_parquet(XGB_SHORT_EVAL)
-    t.info(f"xgb_dataset_short_eval rows : {len(df):,}")
-    t.info(f"Positive rate (target_y=1)  : {df['target_y'].mean()*100:.2f}%")
+    t.info(f"evaluation.parquet (short) rows : {len(df):,}")
+    t.info(f"Positive rate (target_y=1)      : {df['target_y'].mean()*100:.2f}%")
 
     _xgb_metrics(t, df, 'short', XGB_SHORT_MODEL, threshold=0.8)
     return t
@@ -495,6 +517,11 @@ def test_short_xgb_signals() -> TestResult:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(description="Run broker-specific pipeline verification tests.")
+    add_broker_path_args(parser)
+    args = parser.parse_args()
+    configure_paths(paths_from_args(args))
+
     print("\n" + "=" * 60)
     print("  BMEM Pipeline Test Bench")
     print("=" * 60)
@@ -503,9 +530,9 @@ def main():
     required = {
         "final_vectors_eval.parquet" : FINAL_VECTORS_EVAL,
         "hmm_data_eval.npz"          : HMM_EVAL_NPZ,
-        "xgb_dataset_long_eval"      : XGB_LONG_EVAL,
-        "xgb_dataset_short_eval"     : XGB_SHORT_EVAL,
-        "broker data dir (1440)"     : BROKER_DATA_DIR,
+        "evaluation.parquet (long)"  : XGB_LONG_EVAL,
+        "evaluation.parquet (short)" : XGB_SHORT_EVAL,
+        f"broker data dir ({BROKER_ID})": BROKER_DATA_DIR,
         "stock data dir"             : STOCK_DATA_DIR,
         "xgb long model"             : XGB_LONG_MODEL,
         "xgb short model"            : XGB_SHORT_MODEL,

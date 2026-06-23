@@ -8,6 +8,11 @@
 #   Test 4   - Short XGBoost signal quality
 #
 # Usage (from repo root):
-#   .\script\run_test_pipeline.ps1
+#   .\script\run_test_pipeline.ps1 -BrokerId "1440"
 
-conda run -n BMEM --no-capture-output python ./src/test_pipeline.py
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$BrokerId
+)
+
+conda run -n BMEM --no-capture-output python ./src/test_pipeline.py --broker-id $BrokerId
