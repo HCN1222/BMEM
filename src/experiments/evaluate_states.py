@@ -1,19 +1,33 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
 # 直接從你的 train.py 匯入所有精華函數
 from src.experiments.train_hmm import (
-    load_dataset, 
-    train_model_with_progress, 
-    create_output_dir, 
-    save_results, 
-    save_loglik_plot, 
+    load_dataset,
+    train_model_with_progress,
+    create_output_dir,
+    save_results,
+    save_loglik_plot,
     print_summary
 )
 from src.utils.paths import add_broker_path_args, paths_from_args
+
+def bic_from_metadata(metadata_path: Path, n_samples: int):
+    """從已存的 metadata.json 重新計算 BIC，用於 resume 時跳過已完成的 state。"""
+    with open(metadata_path, encoding="utf-8") as f:
+        meta = json.load(f)
+    n_states = meta["n_states"]
+    n_features = meta["n_features"]
+    covariance_type = meta["covariance_type"]
+    log_likelihood = meta["final_log_likelihood"]
+    cov_params = n_states * n_features if covariance_type == "diag" else n_states * (n_features * (n_features + 1)) / 2
+    n_params = n_states * (n_states - 1) + (n_states - 1) + n_states * n_features + cov_params
+    bic = -2 * log_likelihood + n_params * np.log(n_samples)
+    return bic, log_likelihood
 
 def calculate_bic(model, X, lengths, covariance_type):
     """計算 BIC (包含 full 與 diag 的自動判斷)"""
@@ -47,27 +61,36 @@ def main():
     parser.add_argument("--covariance_type", type=str, default="full", choices=["full", "diag"])
     parser.add_argument("--tol", type=float, default=1e-3)
     parser.add_argument("--random_seed", type=int, default=25)
+    parser.add_argument("--n_restarts", type=int, default=1, help="Number of random restarts per state count. Best log-likelihood is kept.")
     parser.add_argument("--min_states", type=int, default=2, help="Minimum number of states to evaluate.")
     parser.add_argument("--max_states", type=int, default=6, help="Maximum number of states to evaluate.")
-    
+    parser.add_argument("--resume-dir", "--resume_dir", type=Path, default=None, help="Resume an interrupted run from this existing directory. Completed states are skipped.")
+
     args = parser.parse_args()
     paths = paths_from_args(args)
     input_path = args.input_file or paths.hmm_data_dir / "hmm_data_train.npz"
     output_root = args.outdir or paths.hmm_runs_dir
     args.input_file = str(input_path)
-    
+
     # 1. 載入資料
     lengths, observations, feature_names = load_dataset(input_path)
     print(f"Data loaded. Observations: {observations.shape[0]}, Features: {observations.shape[1]}")
-    
-    # 2. 建立「主評估資料夾」(帶有唯一時間戳記，避免覆蓋)
-    eval_master_dir = create_output_dir(input_path, output_root)
-    print(f"\nCreated master evaluation directory: {eval_master_dir}")
+
+    # 2. 決定輸出資料夾：resume 模式直接用既有資料夾，否則建新的
+    if args.resume_dir:
+        eval_master_dir = Path(args.resume_dir).resolve()
+        if not eval_master_dir.exists():
+            raise FileNotFoundError(f"Resume directory not found: {eval_master_dir}")
+        print(f"\nResuming from existing directory: {eval_master_dir}")
+    else:
+        eval_master_dir = create_output_dir(input_path, output_root)
+        print(f"\nCreated master evaluation directory: {eval_master_dir}")
     
     bics = []
     log_likelihoods = []
+    seed_log = []
     state_range = range(args.min_states, args.max_states + 1)
-    
+
     best_bic = np.inf
     best_n = None
 
@@ -77,19 +100,48 @@ def main():
     
     # 3. 跑迴圈評估不同 State，並「逐一存檔」
     for n_states in state_range:
-        print(f"\n--- Training & Saving model with n_states = {n_states} ---")
-        
-        # 訓練模型
-        model, history, converged_iteration = train_model_with_progress(
-            observations=observations,
-            lengths=lengths,
-            n_states=n_states,
-            covariance_type=args.covariance_type,
-            max_iterations=args.iterations,
-            tol=args.tol,
-            random_seed=args.random_seed
-        )
-        
+        state_dir = eval_master_dir / f"states_{n_states}"
+        meta_path = state_dir / "metadata.json"
+
+        # Resume 模式：已完成的 state 直接從 metadata 讀取，跳過訓練
+        if meta_path.exists():
+            bic, log_l = bic_from_metadata(meta_path, observations.shape[0])
+            print(f"\n--- states={n_states} already done, skipping. Log-Lik: {log_l:.2f} | BIC: {bic:.2f} ---")
+            bics.append(bic)
+            log_likelihoods.append(log_l)
+            if bic < best_bic:
+                best_bic = bic
+                best_n = n_states
+            continue
+
+        print(f"\n--- Training & Saving model with n_states = {n_states} (restarts={args.n_restarts}) ---")
+
+        # 多次 restart，取 log-likelihood 最高的模型
+        best_model, best_history, best_converged = None, None, None
+        best_restart_loglik = -np.inf
+        best_seed = args.random_seed
+        for restart in range(args.n_restarts):
+            seed = args.random_seed + restart
+            print(f"  Restart {restart + 1}/{args.n_restarts} (seed={seed})")
+            m, h, c = train_model_with_progress(
+                observations=observations,
+                lengths=lengths,
+                n_states=n_states,
+                covariance_type=args.covariance_type,
+                max_iterations=args.iterations,
+                tol=args.tol,
+                random_seed=seed
+            )
+            restart_loglik = h[-1] if h else -np.inf
+            if restart_loglik > best_restart_loglik:
+                best_restart_loglik = restart_loglik
+                best_seed = seed
+                best_model, best_history, best_converged = m, h, c
+                print(f"  -> New best log-lik: {best_restart_loglik:.2f}")
+        model, history, converged_iteration = best_model, best_history, best_converged
+        print(f"  => Best seed for n_states={n_states}: seed={best_seed} (log-lik={best_restart_loglik:.2f})")
+        seed_log.append({"n_states": n_states, "best_seed": best_seed, "best_log_likelihood": best_restart_loglik})
+
         # 計算 BIC
         bic, log_l, params = calculate_bic(model, observations, lengths, args.covariance_type)
         bics.append(bic)
@@ -101,8 +153,6 @@ def main():
             best_bic = bic
             best_n = n_states
             
-        # 為這個 State 建立獨立的子資料夾 (例如: states_3)
-        state_dir = eval_master_dir / f"states_{n_states}"
         state_dir.mkdir(parents=True, exist_ok=True)
         
         # 進行 Viterbi Decode 預測狀態
@@ -145,10 +195,15 @@ def main():
     plt.savefig(bic_plot_path, dpi=150)
     plt.close()
 
+    seed_log_path = eval_master_dir / "seed_log.json"
+    with open(seed_log_path, "w", encoding="utf-8") as f:
+        json.dump(seed_log, f, indent=2, ensure_ascii=False)
+
     print("\n" + "="*60)
     print(f"All models saved successfully!")
     print(f"Master Directory: {eval_master_dir}")
     print(f"BIC Chart saved at: {bic_plot_path}")
+    print(f"Seed log saved at: {seed_log_path}")
     print(f"Optimal States Selected (Lowest BIC): {best_n}")
     print("="*60)
 

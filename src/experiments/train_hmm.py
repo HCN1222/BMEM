@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument( "--covariance_type", type=str, default="full", choices=["full", "diag"], help='Covariance type for Gaussian emissions. Default: full')
     parser.add_argument( "--tol", type=float, default=1e-3, help="Tolerance for log-likelihood improvement to stop fitting. Recommended default: 1e-3" )
     parser.add_argument( "--random_seed", type=int, default=12, help="Random seed. Default: 12" )
+    parser.add_argument( "--n_restarts", type=int, default=1, help="Number of random restarts. Best log-likelihood is kept. Default: 1" )
 
     return parser.parse_args()
 
@@ -135,13 +136,13 @@ def train_model_with_progress(
         observations, n_states, covariance_type, random_seed
     )
 
-    model = GaussianHMM( 
-        n_components=n_states, 
+    model = GaussianHMM(
+        n_components=n_states,
         covariance_type=covariance_type,
-        n_iter=1,              
+        n_iter=1,
         tol=tol,
-        init_params="",        
-        params="stmc",         
+        init_params="",
+        params="stmc",
         random_state=random_seed,
         verbose=False
     )
@@ -284,15 +285,29 @@ def main():
     print(f"Observation shape: {observations.shape}")
     print("features:", feature_names)
 
-    model, log_likelihood_history, converged_iteration = train_model_with_progress(
-        observations=observations,
-        lengths=lengths,
-        n_states=args.n_states,
-        covariance_type=args.covariance_type,
-        max_iterations=args.iterations,
-        tol=args.tol,
-        random_seed=args.random_seed
-    )
+    best_model, best_history, best_converged = None, None, None
+    best_loglik = -float("inf")
+    best_seed = args.random_seed
+    for restart in range(args.n_restarts):
+        seed = args.random_seed + restart
+        print(f"\nRestart {restart + 1}/{args.n_restarts} (seed={seed})")
+        m, h, c = train_model_with_progress(
+            observations=observations,
+            lengths=lengths,
+            n_states=args.n_states,
+            covariance_type=args.covariance_type,
+            max_iterations=args.iterations,
+            tol=args.tol,
+            random_seed=seed
+        )
+        loglik = h[-1] if h else -float("inf")
+        if loglik > best_loglik:
+            best_loglik = loglik
+            best_seed = seed
+            best_model, best_history, best_converged = m, h, c
+            print(f"-> New best log-lik: {best_loglik:.2f} (seed={seed})")
+    model, log_likelihood_history, converged_iteration = best_model, best_history, best_converged
+    print(f"\nBest seed: {best_seed} | Final log-lik: {best_loglik:.2f}")
 
     decoded_states = model.predict(observations, lengths=lengths)
     posterior_probs = model.predict_proba(observations, lengths=lengths)

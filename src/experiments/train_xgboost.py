@@ -200,7 +200,7 @@ try:
     plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig(feature_importance_plot_path, dpi=300)
-    plt.show()
+    plt.close()
     print(f"[OK] 特徵重要性圖表已儲存至: {feature_importance_plot_path}")
 except Exception as e:
     plt.close()
