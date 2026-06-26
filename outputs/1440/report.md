@@ -30,18 +30,7 @@ Each side has a saved model (`xgb_trading_model.json`) and a feature-importance 
 
 ## 4. Backtest (`backtest/`)
 
-### 4.1 Published baseline (2025-only out-of-sample, from README)
-
-| Strategy | Total Return | Max Drawdown | Trades | Win Rate |
-|---|---|---|---|---|
-| **Top-1** | **+378.49%** | -32.1% | 33 | **69.70%** |
-| Top-5 | +127.30% | -35.8% | 188 | 55.85% |
-| Top-3 | +85.67% | -35.8% | 121 | 54.55% |
-| 0050 Benchmark | +56.72% | -26.4% | — | — |
-
-### 4.2 Rerun results (extended window, 2025-02-03 → 2026-05-29)
-
-Reran `src.experiments.portfolio_backtest --broker-id 1440` against the current evaluation dataset (`data/preprocessed_data/1440/xgboost/long/test.parquet`, which now covers an extra ~5 months beyond the original 2025-only baseline). This regenerated all four backtest charts and `reports/top1_trade_history.csv` in place.
+### 4.1 Results (2025-02-03 → 2026-05-29)
 
 The evaluation window is intentionally capped at `TEST_END = '2026-05-31'` in `src/experiments/prepare_xgb_data.py` (added so the tail of the test set never includes rows whose 10-day-forward label isn't fully observable yet). 2026-05-30/31 fall on a Sat/Sun, so the last tradable day inside the cap is **2026-05-29** — which is exactly where this rerun's evaluation data and backtest end.
 
@@ -68,9 +57,9 @@ Takeaway: for Top-1, smoothing the long probability strictly hurts (raw signal i
 
 Charts (regenerated): `equity_curve_top_n_comparison.png`, `equity_curve_ema_long_top{1,3,5}_comparison.png`.
 
-### 4.3 Current trade log (`reports/top1_trade_history.csv`)
+### 4.2 Trade log (`reports/top1_trade_history.csv`)
 
-Rerun trade log now spans **2025-02-04 → 2026-05-29** (57 closed trades):
+Trade log spans **2025-02-04 → 2026-05-29** (57 closed trades):
 
 | Metric | Value |
 |---|---|
@@ -79,5 +68,3 @@ Rerun trade log now spans **2025-02-04 → 2026-05-29** (57 closed trades):
 | Total return | +345.47% |
 
 Exit reasons: 31 trades closed by rotation into a higher-confidence pick ("滿檔換股"), 22 by the short model's warning signal ("做空模型預警賣出"), 3 by the -20% trailing stop-loss, 1 forced end-of-period close.
-
-> Note: the rerun window (2025-02 → 2026-05) differs from the original published baseline (2025-only), so the two tables in §4.1/§4.2 aren't directly comparable — §4.1 is the original published result, §4.2/§4.3 reflect the current, longer out-of-sample window.
