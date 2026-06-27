@@ -2,7 +2,7 @@
 **/.ipynb_checkpoints
 outputs/1440/daily
 data/
-src\experiments\__pycache__
+__pycache__
 *.pyc
 .agents
 .claude
