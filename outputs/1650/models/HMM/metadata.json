@@ -1,0 +1,21 @@
+{
+  "broker_id": "1650",
+  "input_file": "C:\\Users\\hcn12\\OneDrive\\Desktop\\NING\\Github\\BMEM\\data\\preprocessed_data\\1650\\hmm\\hmm_data_train.npz",
+  "outdir": "C:\\Users\\hcn12\\OneDrive\\Desktop\\NING\\Github\\BMEM\\outputs\\1650\\runs\\hmm\\result_20260627_205512\\states_6",
+  "iterations": 200,
+  "n_states": 6,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_total_timesteps": 956804,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 104,
+  "final_log_likelihood": 16076333.986540208
+}
