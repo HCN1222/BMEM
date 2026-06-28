@@ -118,13 +118,13 @@ Pick 6 states instead.
 ## 淨值曲線圖
 
 ### 多檔持股大對決 (Top-1 / Top-3 / Top-5 / 0050)
-![equity_curve_top_n_comparison](equity_curve_top_n_comparison.png)
+![equity_curve_top_n_comparison](../backtest/equity_curve_top_n_comparison.png)
 
 ### EMA 做多平滑策略對比 (Top-1)
-![equity_curve_ema_long_top1_comparison](equity_curve_ema_long_top1_comparison.png)
+![equity_curve_ema_long_top1_comparison](../backtest/equity_curve_ema_long_top1_comparison.png)
 
 ### EMA 做多平滑策略對比 (Top-3)
-![equity_curve_ema_long_top3_comparison](equity_curve_ema_long_top3_comparison.png)
+![equity_curve_ema_long_top3_comparison](../backtest/equity_curve_ema_long_top3_comparison.png)
 
 ### EMA 做多平滑策略對比 (Top-5)
-![equity_curve_ema_long_top5_comparison](equity_curve_ema_long_top5_comparison.png)
+![equity_curve_ema_long_top5_comparison](../backtest/equity_curve_ema_long_top5_comparison.png)
