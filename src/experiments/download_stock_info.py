@@ -11,6 +11,7 @@ from FinMind.data import DataLoader
 from src.utils.io import save_df
 from src.utils.paths import DEFAULT_DATA_ROOT
 from src.utils.stock_data import latest_stock_date
+from src.utils.datetime import yesterday_str
 
 def normalize_stock_ids(values) -> list[str]:
     invalid = {"", "nan", "none", "null", "<na>"}
@@ -80,7 +81,7 @@ def main():
     )
     parser.add_argument("--mode", choices=["single", "list", "brokers"], required=True)
     parser.add_argument("--start", help="YYYY-MM-DD (inclusive)")
-    parser.add_argument("--end", help="YYYY-MM-DD (inclusive)")
+    parser.add_argument("--end", default=None, help="YYYY-MM-DD (inclusive). Defaults to yesterday.")
     parser.add_argument("--stock-id", help="Required if --mode single")
     parser.add_argument(
         "--stock-ids-json",
@@ -123,8 +124,9 @@ def main():
         if args.refresh_only:
             return
 
-    if not args.start or not args.end:
-        raise ValueError("--start and --end are required when downloading stock data")
+    if not args.start:
+        raise ValueError("--start is required when downloading stock data")
+    end = args.end or yesterday_str()
 
     load_dotenv()
     token = os.environ["FINMIND_API_KEY"]
@@ -138,7 +140,7 @@ def main():
     failed = []
     skipped = 0
     total = len(stock_ids)
-    requested_end = pd.Timestamp(args.end)
+    requested_end = pd.Timestamp(end)
 
     for i, sid in enumerate(stock_ids, 1):
         try:
@@ -154,7 +156,7 @@ def main():
                         latest_date.normalize() + pd.Timedelta(days=1),
                     ).strftime("%Y-%m-%d")
 
-            fname = f"{sid}_{fetch_start}_to_{args.end}"
+            fname = f"{sid}_{fetch_start}_to_{end}"
             out_file = out_root / (fname + (".parquet" if args.format == "parquet" else ".csv"))
 
             # Check existence BEFORE requesting API
@@ -165,7 +167,7 @@ def main():
             df = api.taiwan_stock_daily(
                 stock_id=str(sid),
                 start_date=fetch_start,
-                end_date=args.end,
+                end_date=end,
             )
 
             if df is None or df.empty:
@@ -178,7 +180,7 @@ def main():
                 "mode": args.mode,
                 "stock_id": str(sid),
                 "start_date": fetch_start,
-                "end_date": args.end,
+                "end_date": end,
                 "rows": int(len(df)),
                 "output_file": str(out_file),
             }
@@ -199,7 +201,7 @@ def main():
         if i % 20 == 0 or i == total:
             print(f"[{i}/{total}] processed (last: {sid})")
 
-    run_fname = f"run_{args.mode}_{args.start}_to_{args.end}"
+    run_fname = f"run_{args.mode}_{args.start}_to_{end}"
     (out_root / (run_fname + "_failed.json")).write_text(
         json.dumps(failed, ensure_ascii=False, indent=2),
         encoding="utf-8",

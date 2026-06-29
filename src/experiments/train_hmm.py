@@ -95,7 +95,7 @@ def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covarian
         for i in range(n_states):
             obs_i = observations[labels == i]
             if len(obs_i) > 1:
-                covars[i] = np.cov(obs_i, rowvar=False) + np.eye(n_features) * 1e-6
+                covars[i] = np.cov(obs_i, rowvar=False) + np.eye(n_features) * 1e-3
             else:
                 covars[i] = np.eye(n_features)
     elif covariance_type == "diag":
@@ -113,14 +113,24 @@ def initialize_hmm_with_kmeans(observations: np.ndarray, n_states: int, covarian
     return startprob, transmat, means, covars
 
 
-def _repair_covars(model: GaussianHMM, covariance_type: str, n_states: int):
-    """Symmetrize + add a small epsilon so a near-singular covariance becomes positive-definite again."""
+def _repair_covars(model: GaussianHMM, covariance_type: str, n_states: int, epsilon: float = 1e-3):
+    """Project each covariance to nearest positive-definite matrix via eigendecomposition."""
     if covariance_type == "full":
+        n_features = model.means_.shape[1]
         for i in range(n_states):
-            model.covars_[i] = (model.covars_[i] + model.covars_[i].T) / 2
-            np.fill_diagonal(model.covars_[i], model.covars_[i].diagonal() + 1e-5)
+            cov = model.covars_[i]
+            if not np.all(np.isfinite(cov)):
+                model.covars_[i] = np.eye(n_features) * epsilon
+                continue
+            cov = (cov + cov.T) / 2
+            try:
+                eigvals, eigvecs = np.linalg.eigh(cov)
+                eigvals = np.maximum(eigvals, epsilon)
+                model.covars_[i] = eigvecs @ np.diag(eigvals) @ eigvecs.T
+            except np.linalg.LinAlgError:
+                model.covars_[i] = np.eye(n_features) * epsilon
     elif covariance_type == "diag":
-        model.covars_ = np.maximum(model.covars_, 1e-5)
+        model.covars_ = np.maximum(model.covars_, epsilon)
 
 
 def train_model_with_progress(
@@ -139,6 +149,7 @@ def train_model_with_progress(
     model = GaussianHMM(
         n_components=n_states,
         covariance_type=covariance_type,
+        min_covar=1e-3,
         n_iter=1,
         tol=tol,
         init_params="",
@@ -171,11 +182,21 @@ def train_model_with_progress(
             model.fit(observations, lengths=lengths)
             current_loglik = model.score(observations, lengths=lengths)
         except (np.linalg.LinAlgError, ValueError) as e:
-            print(f"\n  WARNING: 第 {iteration_idx + 1} 次迭代 covariance 矩陣數值不穩定 ({e})，"
-                  f"套用正規化修正後重試一次...")
-            _repair_covars(model, covariance_type, n_states)
-            model.fit(observations, lengths=lengths)
-            current_loglik = model.score(observations, lengths=lengths)
+            print(f"\n  WARNING: 第 {iteration_idx + 1} 次迭代 covariance 矩陣數值不穩定 ({e})，嘗試修復...")
+            repaired = False
+            for attempt, eps in enumerate([1e-3, 1e-2, 1e-1], start=1):
+                try:
+                    _repair_covars(model, covariance_type, n_states, epsilon=eps)
+                    model.fit(observations, lengths=lengths)
+                    current_loglik = model.score(observations, lengths=lengths)
+                    print(f"  -> 修復成功 (epsilon={eps}，第 {attempt} 次嘗試)")
+                    repaired = True
+                    break
+                except (np.linalg.LinAlgError, ValueError):
+                    continue
+            if not repaired:
+                print("  -> 修復失敗，跳過此次迭代")
+                current_loglik = previous_loglik if previous_loglik is not None else -float("inf")
 
         log_likelihood_history.append(float(current_loglik))
 

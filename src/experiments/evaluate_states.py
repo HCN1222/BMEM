@@ -12,7 +12,8 @@ from src.experiments.train_hmm import (
     create_output_dir,
     save_results,
     save_loglik_plot,
-    print_summary
+    print_summary,
+    _repair_covars,
 )
 from src.utils.paths import add_broker_path_args, paths_from_args
 
@@ -142,7 +143,8 @@ def main():
         print(f"  => Best seed for n_states={n_states}: seed={best_seed} (log-lik={best_restart_loglik:.2f})")
         seed_log.append({"n_states": n_states, "best_seed": best_seed, "best_log_likelihood": best_restart_loglik})
 
-        # 計算 BIC
+        # 計算 BIC（先修復 covariance 確保 model.score() 不會 crash）
+        _repair_covars(model, args.covariance_type, n_states, epsilon=1e-2)
         bic, log_l, params = calculate_bic(model, observations, lengths, args.covariance_type)
         bics.append(bic)
         log_likelihoods.append(log_l)
