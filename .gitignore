@@ -1,6 +1,7 @@
 .env
 **/.ipynb_checkpoints
-outputs/1440/daily
+**/daily/
+**/runs/
 data/
 __pycache__
 *.pyc
