@@ -20,6 +20,7 @@ A quantitative trading system for Taiwan stocks that uses a two-stage machine le
 - [Backtest Results & Discussion](#backtest-results--discussion)
 - [Testing](#testing)
 - [Key Design Decisions](#key-design-decisions)
+- [Working with Claude Code](#working-with-claude-code)
 
 ---
 
@@ -757,6 +758,75 @@ All market data is sourced from [FinMind](https://finmindtrade.com/), a Taiwan f
 - Stock prices: Taiwan TWSE OHLCV data
 
 Broker coverage spans **11 broker IDs** across the `data/brokers/` directory.
+
+---
+
+## Working with Claude Code
+
+This repo ships an operating rulebook for AI-assisted sessions under
+`.claude/`. It was written so that any Claude model — including smaller, cheaper
+ones — works here with consistent quality: it externalizes judgment (when to
+verify, when to escalate, when to stop and ask) into concrete, checkable rules.
+
+### What's included
+
+| File | Purpose |
+|------|---------|
+| `.claude/CLAUDE.md` | Routing index, auto-loaded every session. Holds the core facts (conda env, thresholds, no-lookahead) and points to everything else on demand. |
+| `.claude/rules/harness-diagnosis.md` | Top 3 known failure modes (token waste, context flooding, env retry loops) and their fixes. |
+| `.claude/rules/model-dispatch.md` | Which model/agent to delegate each task type to, escalation ladder, verification rules. |
+| `.claude/rules/judgment-rubrics.md` | Checkable definitions of "done", "ask the user", "wrong direction", and the project's quality floor. |
+| `.claude/rules/task-templates.md` | Fill-in-the-blank prompts for delegating search / implementation / refactor / research / review tasks. |
+| `.claude/rules/maintenance.md` | Who may edit what, backup convention, lesson format, compaction thresholds. |
+| `.claude/rules/lessons.md` | Append-only log of mistakes and their corrections. |
+| `.claude/rules/letter-to-future-sessions.md` | Context, known risks, and honest confidence notes from the founding session. |
+| `.claude/agents/scout.md` | Custom subagent: cheap read-only reconnaissance (haiku). |
+| `.claude/agents/verifier.md` | Custom subagent: fresh-context adversarial verification (sonnet). |
+
+### How it works
+
+You don't need to do anything to activate it: Claude Code auto-loads
+`.claude/CLAUDE.md` at session start, and that file routes the model to the
+deeper rules only when a matching situation comes up (delegating, verifying,
+getting stuck). The old "read the whole README first" behavior is gone — the
+model reads specific README sections on demand instead.
+
+### Getting good results
+
+The single highest-leverage habit: **state acceptance criteria in your
+request.** Compare:
+
+> ~~"Improve the data prep script."~~
+>
+> "In `prepare_xgb_data.py`, add feature X. Done means:
+> `python src/test_pipeline.py --broker-id 1440` passes 5/5, and the long
+> training parquet contains the new column."
+
+Other useful moves:
+
+- **"Use scout to find …"** — forces cheap read-only exploration instead of
+  burning main-conversation context.
+- **"Have the verifier check this before you call it done."** — spawns a
+  fresh-context agent that tries to falsify the work (runs the tests itself,
+  reads the files itself).
+- **Spot-audit occasionally:** ask *"which rules files did you consult, and
+  what did the verifier report?"* A hollow answer means the rules are being
+  skipped — that's the institution's main failure mode.
+- **Be suspicious of eval-year improvements:** any model change justified only
+  by a better 2025 backtest is unproven (see the letter file). Ask for
+  walk-forward evidence.
+
+### Maintaining it
+
+- Claude may append to `lessons.md` and memory on its own; every other rule
+  file requires your approval and gets backed up to `.claude/archive/` first.
+- Keep `CLAUDE.md` ≤ 150 lines; when `lessons.md` grows past ~120 lines,
+  promote recurring lessons into the rules files and prune.
+- Model names in `model-dispatch.md` were verified 2026-07-03; if ~6 months
+  have passed, have a session re-verify them against current docs before
+  trusting them.
+- All paths inside `.claude/` must stay repo-relative (the files are
+  versioned and may be used on other machines).
 
 ---
 
