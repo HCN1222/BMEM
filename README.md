@@ -711,14 +711,15 @@ The raw Top-1 strategy has 33 trades at 69.7% win rate — a remarkable combinat
 ## Testing
 
 This is for deploying the model from experiments to production.
-`src/test_pipeline.py` runs 4 regression tests to verify pipeline correctness:
+`src/test_pipeline.py` runs 5 regression tests to verify pipeline correctness:
 
 | Test | What It Checks |
 |------|----------------|
 | 1 — Feature Consistency | Computed features match values in preprocessed reference dataset |
 | 2 — Feature Replication | Raw broker/stock data → `pipeline_functions` produces identical features as `preprocess.py` |
 | 3 — HMM Rolling Inference | Rolling 120-day HMM output matches `prepare_xgb_data.py` reference output |
-| 4 — XGBoost Signal Quality | Precision/recall at configured thresholds meet minimum acceptance criteria |
+| 4 — Long XGBoost Signal Quality | Long-side precision/recall at the configured threshold meet minimum acceptance criteria |
+| 5 — Short XGBoost Signal Quality | Short-side precision/recall at the configured threshold meet minimum acceptance criteria |
 
 Run:
 ```bash
