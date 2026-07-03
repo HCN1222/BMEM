@@ -1,0 +1,21 @@
+{
+  "broker_id": "1480",
+  "input_file": "C:\\Users\\user\\BMEM\\data\\preprocessed_data\\1480\\hmm\\hmm_data_train.npz",
+  "outdir": "C:\\Users\\user\\BMEM\\outputs\\1480\\runs\\hmm\\result_20260623_162934\\states_11",
+  "iterations": 200,
+  "n_states": 11,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_total_timesteps": 885036,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 200,
+  "final_log_likelihood": 15733909.784397101
+}
