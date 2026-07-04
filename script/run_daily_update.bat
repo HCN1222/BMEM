@@ -2,7 +2,7 @@
 setlocal
 
 set "BROKER_ID=%~1"
-if not defined BROKER_ID set "BROKER_ID=1440"
+if not defined BROKER_ID set "BROKER_ID=8440"
 
 :: Activate conda base and then run the PowerShell script under BMEM env
 call "%USERPROFILE%\miniconda3\Scripts\activate.bat" 2>nul
