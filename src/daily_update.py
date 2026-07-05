@@ -1177,8 +1177,18 @@ def run_daily_update(
         out = out.sort_values(today_long_col, ascending=False)
     out = out.reset_index(drop=True)
 
-    # Insert stock_name after stock_id
-    name_map = _lookup_stock_names(_get_api, out['stock_id'].tolist())
+    # Insert stock_name after stock_id.
+    # Include any stocks already in the portfolio so holdings/order cells get names
+    # even when those stocks are not in today's top-N output.
+    from portfolio_tracker import load_holdings as _load_holdings
+    _prior_state = _load_holdings(output_dir)
+    _portfolio_sids = (
+        list(_prior_state.get("holdings", {}).keys())
+        + [pb["stock_id"] for pb in _prior_state.get("pending_buys", [])]
+        + [ps["stock_id"] for ps in _prior_state.get("pending_sells", [])]
+    )
+    _all_name_ids = list(dict.fromkeys(out['stock_id'].tolist() + [str(s) for s in _portfolio_sids]))
+    name_map = _lookup_stock_names(_get_api, _all_name_ids)
     out.insert(1, 'stock_name', out['stock_id'].map(name_map))
 
     out.to_csv(output_path, index=False, encoding='utf-8-sig')
