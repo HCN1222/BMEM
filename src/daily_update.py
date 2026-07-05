@@ -73,6 +73,7 @@ from pipeline_functions import (
     generate_signals,
     FEATURE_COLS,
 )
+from portfolio_tracker import update_portfolio, load_trades_log, TRAILING_STOP_RATIO
 from utils.paths import (
     BrokerPaths,
     DEFAULT_DATA_ROOT,
@@ -635,6 +636,7 @@ def _send_email(
     output_path: Path | None = None,
     top_long_df: "pd.DataFrame | None" = None,
     charts: "list[bytes] | None" = None,
+    portfolio_data: "dict | None" = None,
 ) -> None:
     """
     Send a daily update notification via Gmail SMTP (HTML body).
@@ -710,6 +712,172 @@ def _send_email(
   <tbody>{rows_html}</tbody>
 </table>"""
 
+        # ── Portfolio sections ────────────────────────────────────────────────
+        portfolio_html = ""
+        if portfolio_data:
+            executed   = portfolio_data.get("executed_today", [])
+            holdings   = portfolio_data.get("holdings", {})
+            orders     = portfolio_data.get("tonight_orders", [])
+            price_lkp  = portfolio_data.get("price_lkp", {})
+            name_map_p = portfolio_data.get("name_map", {})
+
+            def _stock_label(sid, name: str = "") -> str:
+                """Combined stock cell text, e.g. '3189 景碩' (code + space + name)."""
+                return f'{sid} {name or name_map_p.get(str(sid), "")}'.strip()
+
+            _cell = 'style="padding:5px 10px;text-align:center;border:1px solid #ddd;"'
+            _hcell = (
+                'style="padding:5px 10px;background:#2c3e50;color:#fff;'
+                'text-align:center;border:1px solid #2c3e50;"'
+            )
+
+            # Section 1: executed today
+            exec_html = ""
+            if executed:
+                rows = ""
+                for t in executed:
+                    action_color = "#27ae60" if t["action"] == "BUY" else "#e74c3c"
+                    ret_str = f"{float(t['return_pct']):.2%}" if t.get("return_pct") != "" else "—"
+                    rows += (
+                        f'<tr>'
+                        f'<td {_cell}><b style="color:{action_color};">{t["action"]}</b></td>'
+                        f'<td {_cell}>{_stock_label(t["stock_id"], t.get("stock_name",""))}</td>'
+                        f'<td {_cell}>{t.get("price","")}</td>'
+                        f'<td {_cell}>{t.get("reason","")}</td>'
+                        f'<td {_cell}>{ret_str}</td>'
+                        f'</tr>'
+                    )
+                exec_html = f"""
+<h3 style="margin-top:20px;">今日執行確認</h3>
+<table style="border-collapse:collapse;font-size:13px;">
+  <tr><th {_hcell}>動作</th><th {_hcell}>股票</th>
+      <th {_hcell}>執行價</th><th {_hcell}>原因</th><th {_hcell}>報酬</th></tr>
+  {rows}
+</table>"""
+
+            # Section 2: current holdings
+            # Stocks queued for a tomorrow-open sell were already removed from
+            # `holdings` by update_portfolio, but the position is still open
+            # tonight — merge them back into the display with a (待賣出) tag.
+            pending_sell_orders = [
+                o for o in orders
+                if o.get("order_type") == "market_open" and o.get("action") == "SELL"
+            ]
+            holdings_html = ""
+            if holdings or pending_sell_orders:
+                rows = ""
+                for sid, h in holdings.items():
+                    close = price_lkp.get(sid, {}).get("close")
+                    ret_str = f"{(close/h['entry_price']-1):.2%}" if close else "—"
+                    ret_color = "#27ae60" if close and close >= h["entry_price"] else "#e74c3c"
+                    stop_price = round(h["highest_price"] * TRAILING_STOP_RATIO, 2)
+                    rows += (
+                        f'<tr>'
+                        f'<td {_cell}>{_stock_label(sid)}</td>'
+                        f'<td {_cell}>{h["entry_date"]}</td>'
+                        f'<td {_cell}>{h["entry_price"]}</td>'
+                        f'<td {_cell}>{close if close else "—"}</td>'
+                        f'<td {_cell}><b style="color:{ret_color};">{ret_str}</b></td>'
+                        f'<td {_cell}>{h["highest_price"]}</td>'
+                        f'<td {_cell}>{stop_price}</td>'
+                        f'</tr>'
+                    )
+                for o in pending_sell_orders:
+                    sid         = str(o["stock_id"])
+                    entry_price = o.get("entry_price")
+                    close       = price_lkp.get(sid, {}).get("close")
+                    ret_str   = f"{(close/entry_price-1):.2%}" if close and entry_price else "—"
+                    ret_color = "#27ae60" if close and entry_price and close >= entry_price else "#e74c3c"
+                    rows += (
+                        f'<tr>'
+                        f'<td {_cell}>{_stock_label(sid, o.get("stock_name",""))} '
+                        f'<span style="color:#e67e22;">(待賣出)</span></td>'
+                        f'<td {_cell}>{o.get("entry_date","")}</td>'
+                        f'<td {_cell}>{entry_price if entry_price is not None else "—"}</td>'
+                        f'<td {_cell}>{close if close else "—"}</td>'
+                        f'<td {_cell}><b style="color:{ret_color};">{ret_str}</b></td>'
+                        f'<td {_cell}>—</td>'
+                        f'<td {_cell}>—</td>'
+                        f'</tr>'
+                    )
+                holdings_html = f"""
+<h3 style="margin-top:20px;">目前持倉</h3>
+<table style="border-collapse:collapse;font-size:13px;">
+  <tr><th {_hcell}>股票</th><th {_hcell}>進場日</th><th {_hcell}>進場價</th>
+      <th {_hcell}>現價</th><th {_hcell}>報酬</th>
+      <th {_hcell}>歷史高點</th><th {_hcell}>停損線</th></tr>
+  {rows}
+</table>"""
+            else:
+                holdings_html = '<p style="color:#888;margin-top:12px;">目前無持倉</p>'
+
+            # Section 3: tonight's orders
+            orders_html = ""
+            if orders:
+                cond_orders  = [o for o in orders if o["order_type"] == "conditional_stop"]
+                mkt_sells    = [o for o in orders if o["order_type"] == "market_open" and o["action"] == "SELL"]
+                mkt_buys     = [o for o in orders if o["order_type"] == "market_open" and o["action"] == "BUY"]
+
+                def _order_rows(order_list: list, extra_col: str, extra_key: str) -> str:
+                    out = ""
+                    for o in order_list:
+                        ret_str = f"{float(o['unrealized_return_pct']):.2%}" if o.get("unrealized_return_pct") is not None else "—"
+                        extra   = o.get(extra_key, "")
+                        extra   = f"{float(extra):.2%}" if extra else "—"
+                        out += (
+                            f'<tr>'
+                            f'<td {_cell}>{_stock_label(o["stock_id"], o.get("stock_name",""))}</td>'
+                            f'<td {_cell}>{o.get("reason","")}</td>'
+                            f'<td {_cell}>{extra}</td>'
+                            f'<td {_cell}>{ret_str}</td>'
+                            f'</tr>'
+                        )
+                    return out
+
+                cond_rows = ""
+                for o in cond_orders:
+                    ret_str = f"{float(o['unrealized_return_pct']):.2%}" if o.get("unrealized_return_pct") is not None else "—"
+                    cond_rows += (
+                        f'<tr>'
+                        f'<td {_cell}>{_stock_label(o["stock_id"], o.get("stock_name",""))}</td>'
+                        f'<td {_cell}><b>{o["trigger_price"]}</b></td>'
+                        f'<td {_cell}>{ret_str}</td>'
+                        f'</tr>'
+                    )
+
+                sell_rows = _order_rows(mkt_sells, "Short機率", "signal_prob_short")
+                buy_rows  = _order_rows(mkt_buys,  "Long機率",  "signal_prob_long")
+
+                cond_table = f"""
+<b>條件單（停損）</b>
+<table style="border-collapse:collapse;font-size:13px;margin-bottom:8px;">
+  <tr><th {_hcell}>股票</th><th {_hcell}>觸發價</th><th {_hcell}>未實現報酬</th></tr>
+  {cond_rows}
+</table>""" if cond_orders else ""
+
+                sell_table = f"""
+<b>預約賣出（明日開盤）</b>
+<table style="border-collapse:collapse;font-size:13px;margin-bottom:8px;">
+  <tr><th {_hcell}>股票</th><th {_hcell}>原因</th><th {_hcell}>Short機率</th><th {_hcell}>未實現報酬</th></tr>
+  {sell_rows}
+</table>""" if mkt_sells else ""
+
+                buy_table = f"""
+<b>預約買入（明日開盤）</b>
+<table style="border-collapse:collapse;font-size:13px;margin-bottom:8px;">
+  <tr><th {_hcell}>股票</th><th {_hcell}>原因</th><th {_hcell}>Long機率</th><th {_hcell}>未實現報酬</th></tr>
+  {buy_rows}
+</table>""" if mkt_buys else ""
+
+                orders_html = f"""
+<h3 style="margin-top:20px;">今晚掛單建議</h3>
+{cond_table}{sell_table}{buy_table}
+<p style="font-size:11px;color:#888;">詳細下單參數見附件 orders_{target_date}.json</p>"""
+            else:
+                orders_html = '<p style="color:#888;margin-top:12px;">今晚無需掛單</p>'
+
+            portfolio_html = exec_html + holdings_html + orders_html
+
         # Build CID image tags (Gmail blocks data: URIs; CID inline works)
         charts_html = ""
         if charts:
@@ -731,6 +899,7 @@ def _send_email(
   <tr><td style="padding:4px 12px 4px 0;color:#555;">Short 訊號 (&ge;{SHORT_THRESHOLD:.0%})</td>
       <td><strong style="color:#e74c3c;">{n_short}</strong></td></tr>
 </table>
+{portfolio_html}
 {table_html}
 {charts_html}
 </body></html>"""
@@ -774,6 +943,17 @@ def _send_email(
         encoders.encode_base64(csv_part)
         csv_part['Content-Disposition'] = f'attachment; filename="{output_path.name}"'
         msg.attach(csv_part)
+
+    if not error_msg and portfolio_data:
+        orders_path = portfolio_data.get("orders_path")
+        if orders_path is not None and Path(orders_path).exists():
+            json_part = MIMEBase('application', 'json')
+            json_part.set_payload(Path(orders_path).read_bytes())
+            encoders.encode_base64(json_part)
+            json_part['Content-Disposition'] = (
+                f'attachment; filename="{Path(orders_path).name}"'
+            )
+            msg.attach(json_part)
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
@@ -892,7 +1072,7 @@ def run_daily_update(
     print(f"\n[4/5] Computing observation features ...")
     feature_df = compute_observation_features(
         combined_broker, combined_stocks, disable_standardize=True,
-        contamination_lookback_days=90,   # ~60 trading days; older zeros have rolled out
+        contamination_lookback_days=180,  # covers full HMM 120-day window (~180 calendar days)
     )
     feature_df['date'] = pd.to_datetime(feature_df['date'])
 
@@ -1049,6 +1229,42 @@ def run_daily_update(
 
     print(f"  -> {len(charts)} chart(s) generated")
 
+    # ── 9. Portfolio tracking ─────────────────────────────────────────────────
+    print("  Updating portfolio tracker ...")
+    today_price_df = combined_stocks[
+        combined_stocks['date'] == target_dt
+    ][['stock_id', 'open', 'close', 'max', 'min']].copy()
+
+    executed_today, holdings, tonight_orders = update_portfolio(
+        daily_dir=output_dir,
+        target_date=target_date,
+        signals_df=signals_df,
+        price_df=today_price_df,
+        name_map=name_map,
+        broker_id=broker_id,
+        max_holdings=1,
+        long_threshold=LONG_THRESHOLD,
+        short_threshold=SHORT_THRESHOLD,
+    )
+
+    # Build price lookup for email rendering (current close per held stock)
+    today_price_df['stock_id'] = today_price_df['stock_id'].astype(str)
+    price_lkp_email = today_price_df.set_index('stock_id').to_dict('index')
+
+    orders_path = output_dir / f"orders_{target_date}.json"
+    portfolio_data = {
+        "executed_today": executed_today,
+        "holdings":       holdings,
+        "tonight_orders": tonight_orders,
+        "price_lkp":      price_lkp_email,
+        "name_map":       name_map,
+        "orders_path":    orders_path,
+    }
+
+    n_exec = len(executed_today)
+    n_ord  = len(tonight_orders)
+    print(f"  -> {n_exec} trade(s) executed today | {n_ord} order(s) for tonight")
+
     _send_email(
         target_date=target_date,
         n_long=n_long,
@@ -1057,6 +1273,7 @@ def run_daily_update(
         output_path=output_path,
         top_long_df=top_long_df,
         charts=charts,
+        portfolio_data=portfolio_data,
     )
 
     return signals_df
