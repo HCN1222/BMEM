@@ -680,8 +680,7 @@ def _send_email(
         table_html = ""
         if top_long_df is not None and not top_long_df.empty:
             col_labels = {
-                'stock_id':       '代號',
-                'stock_name':     '名稱',
+                '股票':           '股票',
                 'pred_prob_long': 'Long 機率',
                 'pred_prob_short':'Short 機率',
             }
@@ -771,6 +770,8 @@ def _send_email(
                     ret_str = f"{(close/h['entry_price']-1):.2%}" if close else "—"
                     ret_color = "#27ae60" if close and close >= h["entry_price"] else "#e74c3c"
                     stop_price = round(h["highest_price"] * TRAILING_STOP_RATIO, 2)
+                    peak_prob = h.get("peak_prob_long")
+                    prob_str = f"{peak_prob:.2%}" if peak_prob is not None else "—"
                     rows += (
                         f'<tr>'
                         f'<td {_cell}>{_stock_label(sid)}</td>'
@@ -780,6 +781,7 @@ def _send_email(
                         f'<td {_cell}><b style="color:{ret_color};">{ret_str}</b></td>'
                         f'<td {_cell}>{h["highest_price"]}</td>'
                         f'<td {_cell}>{stop_price}</td>'
+                        f'<td {_cell}>{prob_str}</td>'
                         f'</tr>'
                     )
                 for o in pending_sell_orders:
@@ -788,6 +790,8 @@ def _send_email(
                     close       = price_lkp.get(sid, {}).get("close")
                     ret_str   = f"{(close/entry_price-1):.2%}" if close and entry_price else "—"
                     ret_color = "#27ae60" if close and entry_price and close >= entry_price else "#e74c3c"
+                    peak_prob = o.get("peak_prob_long")
+                    prob_str = f"{peak_prob:.2%}" if peak_prob is not None else "—"
                     rows += (
                         f'<tr>'
                         f'<td {_cell}>{_stock_label(sid, o.get("stock_name",""))} '
@@ -798,6 +802,7 @@ def _send_email(
                         f'<td {_cell}><b style="color:{ret_color};">{ret_str}</b></td>'
                         f'<td {_cell}>—</td>'
                         f'<td {_cell}>—</td>'
+                        f'<td {_cell}>{prob_str}</td>'
                         f'</tr>'
                     )
                 holdings_html = f"""
@@ -805,7 +810,8 @@ def _send_email(
 <table style="border-collapse:collapse;font-size:13px;">
   <tr><th {_hcell}>股票</th><th {_hcell}>進場日</th><th {_hcell}>進場價</th>
       <th {_hcell}>現價</th><th {_hcell}>報酬</th>
-      <th {_hcell}>歷史高點</th><th {_hcell}>停損線</th></tr>
+      <th {_hcell}>歷史高點</th><th {_hcell}>停損線</th>
+      <th {_hcell}>最高Long機率</th></tr>
   {rows}
 </table>"""
             else:
@@ -1208,14 +1214,22 @@ def run_daily_update(
     top10_today = signals_df.sort_values('pred_prob_long', ascending=False).head(10).copy()
     top10_today['stock_name'] = top10_today['stock_id'].astype(str).map(name_map)
     top_long_df = top10_today[['stock_id', 'stock_name', 'pred_prob_long', 'pred_prob_short']].reset_index(drop=True)
+    top_long_df.insert(0, '股票', top_long_df['stock_id'].astype(str) + ' ' + top_long_df['stock_name'].fillna(''))
+    top_long_df['股票'] = top_long_df['股票'].str.strip()
+    top_long_df = top_long_df.drop(columns=['stock_id', 'stock_name'])
     print("  Top-10 long candidates:")
     print(top_long_df.to_string(index=False))
     print()
 
     # ── 8. Generate per-stock charts ──────────────────────────────────────────
     print("  Generating stock charts ...")
+    # Held stocks first, then the rest of the top-N (reuses _prior_state loaded above)
+    held_sids = [str(s) for s in _prior_state.get("holdings", {}).keys()]
+    _out_sids = out['stock_id'].tolist()
+    chart_order = list(dict.fromkeys(held_sids))  # all held stocks first, deduped
+    chart_order += [s for s in _out_sids if s not in set(chart_order)]
     charts: list[bytes] = []
-    for sid in out['stock_id'].tolist():
+    for sid in chart_order:
         # Full history for MA computation (up to LOOKBACK_DAYS); chart renders only last OUTPUT_HIST_DAYS candles
         ohlcv_20d = combined_stocks[
             combined_stocks['stock_id'].astype(str) == sid
