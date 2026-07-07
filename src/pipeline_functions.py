@@ -423,8 +423,6 @@ def _rolling_predict_proba(
         rows.append(model.predict_proba(X_window)[-1])
         computed.append(t)
 
-    if not rows:
-        return np.empty((0, n_components)), computed
     return np.array(rows), computed
 
 
