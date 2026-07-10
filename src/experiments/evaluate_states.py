@@ -53,6 +53,48 @@ def calculate_bic(model, X, lengths, covariance_type):
     bic = -2 * log_likelihood + n_params * np.log(n_samples)
     return bic, log_likelihood, n_params
 
+def save_seed_selection_plot(outdir: Path, seed_log):
+    """畫出每個 state 數最終採用的 seed（星號）以及各 restart seed 的 log-likelihood 分布。
+    只涵蓋本次實際訓練的 state（resume 跳過的不含在內）。"""
+    from matplotlib.lines import Line2D
+
+    entries = [e for e in seed_log if np.isfinite(e.get("best_log_likelihood", -np.inf))]
+    if not entries:
+        return None
+
+    max_restarts = max(max((len(e.get("restarts", [])) for e in entries), default=1), 1)
+    cmap = plt.cm.viridis
+
+    plt.figure(figsize=(11, 6))
+    for e in entries:
+        n = e["n_states"]
+        for r in e.get("restarts", []):
+            ll = r.get("log_likelihood")
+            if ll is None or not np.isfinite(ll):
+                continue
+            frac = r.get("restart", 0) / max(max_restarts - 1, 1)
+            plt.scatter(n, ll, color=cmap(frac), s=45, alpha=0.75, zorder=2)
+        plt.scatter(n, e["best_log_likelihood"], marker="*", s=280,
+                    facecolors="gold", edgecolors="black", zorder=3)
+        plt.annotate(f"seed={e['best_seed']}", (n, e["best_log_likelihood"]),
+                     textcoords="offset points", xytext=(0, 11), ha="center", fontsize=8)
+
+    handles = [Line2D([], [], marker="o", linestyle="", color=cmap(j / max(max_restarts - 1, 1)),
+                      label=f"restart {j}") for j in range(max_restarts)]
+    handles.append(Line2D([], [], marker="*", linestyle="", markerfacecolor="gold",
+                          markeredgecolor="black", markersize=15, label="chosen (best log-lik)"))
+    plt.legend(handles=handles, loc="best", fontsize=8)
+    plt.title("Seed Selection per State Count (best restart starred)")
+    plt.xlabel("Number of Hidden States")
+    plt.ylabel("Final Log-likelihood")
+    plt.xticks([e["n_states"] for e in entries])
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    path = outdir / "seed_selection.png"
+    plt.savefig(path, dpi=150)
+    plt.close()
+    return path
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate HMM states, save ALL models, and plot BIC.")
     add_broker_path_args(parser)
@@ -121,6 +163,7 @@ def main():
         best_model, best_history, best_converged = None, None, None
         best_restart_loglik = -np.inf
         best_seed = args.random_seed
+        restart_records = []
         for restart in range(args.n_restarts):
             seed = args.random_seed + restart
             print(f"  Restart {restart + 1}/{args.n_restarts} (seed={seed})")
@@ -134,6 +177,7 @@ def main():
                 random_seed=seed
             )
             restart_loglik = h[-1] if h else -np.inf
+            restart_records.append({"restart": restart, "seed": seed, "log_likelihood": float(restart_loglik)})
             if restart_loglik > best_restart_loglik:
                 best_restart_loglik = restart_loglik
                 best_seed = seed
@@ -141,7 +185,12 @@ def main():
                 print(f"  -> New best log-lik: {best_restart_loglik:.2f}")
         model, history, converged_iteration = best_model, best_history, best_converged
         print(f"  => Best seed for n_states={n_states}: seed={best_seed} (log-lik={best_restart_loglik:.2f})")
-        seed_log.append({"n_states": n_states, "best_seed": best_seed, "best_log_likelihood": best_restart_loglik})
+        seed_log.append({
+            "n_states": n_states,
+            "best_seed": best_seed,
+            "best_log_likelihood": float(best_restart_loglik),
+            "restarts": restart_records,
+        })
 
         # 計算 BIC（先修復 covariance 確保 model.score() 不會 crash）
         _repair_covars(model, args.covariance_type, n_states, epsilon=1e-2)
@@ -201,11 +250,15 @@ def main():
     with open(seed_log_path, "w", encoding="utf-8") as f:
         json.dump(seed_log, f, indent=2, ensure_ascii=False)
 
+    seed_plot_path = save_seed_selection_plot(eval_master_dir, seed_log)
+
     print("\n" + "="*60)
     print(f"All models saved successfully!")
     print(f"Master Directory: {eval_master_dir}")
     print(f"BIC Chart saved at: {bic_plot_path}")
     print(f"Seed log saved at: {seed_log_path}")
+    if seed_plot_path is not None:
+        print(f"Seed selection chart saved at: {seed_plot_path}")
     print(f"Optimal States Selected (Lowest BIC): {best_n}")
     print("="*60)
 
