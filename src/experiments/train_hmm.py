@@ -272,6 +272,32 @@ def save_loglik_plot(outdir: Path, log_likelihood_history):
     plt.close()
 
 
+def save_seed_plot(outdir: Path, restart_records, best_seed):
+    """Plot each restart seed's final log-likelihood; star the chosen (best) seed."""
+    recs = [r for r in (restart_records or [])
+            if r.get("log_likelihood") is not None and np.isfinite(r["log_likelihood"])]
+    if not recs:
+        return
+    seeds = [r["seed"] for r in recs]
+    lls = [r["log_likelihood"] for r in recs]
+    best = max(recs, key=lambda r: r["log_likelihood"])
+
+    plt.figure(figsize=(8, 5))
+    plt.scatter(seeds, lls, s=60, color="steelblue", alpha=0.8, zorder=2, label="restart")
+    plt.scatter([best["seed"]], [best["log_likelihood"]], marker="*", s=300,
+                facecolors="gold", edgecolors="black", zorder=3,
+                label=f"chosen (seed={best['seed']})")
+    plt.xlabel("Seed")
+    plt.ylabel("Final Log-likelihood")
+    plt.title("Restart Seed Selection (best starred)")
+    plt.xticks(seeds)
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(loc="best", fontsize=8)
+    plt.tight_layout()
+    plt.savefig(outdir / "seed_selection.png", dpi=150)
+    plt.close()
+
+
 def save_results(
     outdir: Path,
     model: GaussianHMM,
@@ -280,7 +306,9 @@ def save_results(
     args,
     lengths: np.ndarray,
     decoded_states: np.ndarray,
-    posterior_probs: np.ndarray
+    posterior_probs: np.ndarray,
+    best_seed: int = None,
+    restart_records: list = None,
 ):
     np.savez(
         outdir / "trained_hmm_params.npz",
@@ -303,6 +331,9 @@ def save_results(
         "covariance_type": args.covariance_type,
         "tol": float(args.tol),
         "random_seed": int(args.random_seed),
+        "n_restarts": int(args.n_restarts),
+        "best_seed": int(best_seed) if best_seed is not None else None,
+        "restart_log": restart_records or [],
         "n_total_timesteps": int(lengths.sum()),
         "feature_names": feature_names.tolist(),
         "n_features": int(model.means_.shape[1]),
@@ -349,6 +380,7 @@ def main():
     best_model, best_history, best_converged = None, None, None
     best_loglik = -float("inf")
     best_seed = args.random_seed
+    restart_records = []
     for restart in range(args.n_restarts):
         seed = args.random_seed + restart
         print(f"\nRestart {restart + 1}/{args.n_restarts} (seed={seed})")
@@ -363,6 +395,12 @@ def main():
             covar_floor_frac=args.covar_floor_frac
         )
         loglik = h[-1] if h else -float("inf")
+        restart_records.append({
+            "restart": restart,
+            "seed": seed,
+            "log_likelihood": float(loglik),
+            "converged_iteration": c,
+        })
         if loglik > best_loglik:
             best_loglik = loglik
             best_seed = seed
@@ -382,10 +420,13 @@ def main():
         args=args,
         lengths=lengths,
         decoded_states=decoded_states,
-        posterior_probs=posterior_probs
+        posterior_probs=posterior_probs,
+        best_seed=best_seed,
+        restart_records=restart_records
     )
 
     save_loglik_plot(outdir, log_likelihood_history)
+    save_seed_plot(outdir, restart_records, best_seed)
     print_summary(feature_names, model)
 
     print("\nTraining completed.")
