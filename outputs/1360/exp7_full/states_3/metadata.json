@@ -1,0 +1,21 @@
+{
+  "broker_id": "1360",
+  "input_file": "E:\\蔡妮妮\\Github\\BMEM\\data\\preprocessed_data\\1360\\hmm\\hmm_data_train.npz",
+  "outdir": "E:\\蔡妮妮\\Github\\BMEM\\outputs\\1360\\runs\\hmm\\result_20260626_162319\\states_3",
+  "iterations": 200,
+  "n_states": 3,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_total_timesteps": 351176,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 29,
+  "final_log_likelihood": 1741723.385373549
+}
