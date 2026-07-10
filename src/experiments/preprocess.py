@@ -194,6 +194,11 @@ def main():
     # 5. Clean up & Split for hmmlearn
     feature_cols = ['z_t', 'c_t', 'a_t', 's_t', 'm_t']
 
+    # Downcast float64 -> float32 to halve peak memory on large pooled inputs.
+    # Feature/EDA precision in float32 is ample; HMM observations are small ratios.
+    float64_cols = df.select_dtypes(include=['float64']).columns
+    df[float64_cols] = df[float64_cols].astype('float32')
+
     # Drop rows with NaN (自動根據特徵需求裁切掉無法計算的前導天數)
     cleaned_df = df.dropna(subset=feature_cols).copy()
 
