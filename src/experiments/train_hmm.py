@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument( "--tol", type=float, default=1e-3, help="Tolerance for log-likelihood improvement to stop fitting. Recommended default: 1e-3" )
     parser.add_argument( "--random_seed", type=int, default=12, help="Random seed. Default: 12" )
     parser.add_argument( "--n_restarts", type=int, default=1, help="Number of random restarts. Best log-likelihood is kept. Default: 1" )
+    parser.add_argument( "--covar_floor_frac", type=float, default=0.01, help="Per-EM-step covariance eigenvalue floor, expressed as a fraction of each feature's global variance (applied in the variance-normalized basis). Set 0 to disable and fall back to reactive repair only. Default: 0.01" )
 
     return parser.parse_args()
 
@@ -130,7 +131,43 @@ def _repair_covars(model: GaussianHMM, covariance_type: str, n_states: int, epsi
             except np.linalg.LinAlgError:
                 model.covars_[i] = np.eye(n_features) * epsilon
     elif covariance_type == "diag":
-        model.covars_ = np.maximum(model.covars_, epsilon)
+        # model.covars_ getter returns full (n, d, d) matrices; the setter needs (n, d)
+        diag_now = np.array([np.diag(model.covars_[i]) for i in range(n_states)])
+        model.covars_ = np.maximum(diag_now, epsilon)
+
+
+def _floor_covars_relative(model: GaussianHMM, covariance_type: str, n_states: int, dim_var: np.ndarray, frac: float):
+    """Proactively floor each state's covariance at `frac` of every feature's global
+    variance, applied in the variance-normalized basis so the floor is consistent
+    across features with very different scales. This replaces a fixed absolute
+    min_covar (which only floors the diagonal and cannot fix indefiniteness caused
+    by large off-diagonal correlation) and is scale-invariant to standardization."""
+    if frac <= 0:
+        return
+    if covariance_type == "diag":
+        # model.covars_ getter returns full (n, d, d) matrices; the setter needs (n, d)
+        diag_now = np.array([np.diag(model.covars_[i]) for i in range(n_states)])
+        model.covars_ = np.maximum(diag_now, frac * dim_var)
+        return
+    # full: floor eigenvalues in the D^{-1} Σ D^{-1} (correlation-scale) basis
+    d = np.sqrt(dim_var)
+    D = np.diag(d)
+    Dinv = np.diag(1.0 / d)
+    n_features = dim_var.shape[0]
+    covars = np.array(model.covars_, dtype=float)
+    for i in range(n_states):
+        cov = covars[i]
+        if not np.all(np.isfinite(cov)):
+            covars[i] = np.diag(frac * dim_var)
+            continue
+        c_norm = Dinv @ ((cov + cov.T) / 2) @ Dinv
+        try:
+            eigvals, eigvecs = np.linalg.eigh((c_norm + c_norm.T) / 2)
+            eigvals = np.maximum(eigvals, frac)
+            covars[i] = D @ (eigvecs @ np.diag(eigvals) @ eigvecs.T) @ D
+        except np.linalg.LinAlgError:
+            covars[i] = np.diag(frac * dim_var)
+    model.covars_ = covars
 
 
 def train_model_with_progress(
@@ -140,8 +177,10 @@ def train_model_with_progress(
     covariance_type: str,
     max_iterations: int,
     tol: float,
-    random_seed: int
+    random_seed: int,
+    covar_floor_frac: float = 0.01
 ):
+    dim_var = observations.var(axis=0)
     startprob, transmat, means, covars = initialize_hmm_with_kmeans(
         observations, n_states, covariance_type, random_seed
     )
@@ -180,6 +219,7 @@ def train_model_with_progress(
     for iteration_idx in progress_bar:
         try:
             model.fit(observations, lengths=lengths)
+            _floor_covars_relative(model, covariance_type, n_states, dim_var, covar_floor_frac)
             current_loglik = model.score(observations, lengths=lengths)
         except (np.linalg.LinAlgError, ValueError) as e:
             print(f"\n  WARNING: 第 {iteration_idx + 1} 次迭代 covariance 矩陣數值不穩定 ({e})，嘗試修復...")
@@ -319,7 +359,8 @@ def main():
             covariance_type=args.covariance_type,
             max_iterations=args.iterations,
             tol=args.tol,
-            random_seed=seed
+            random_seed=seed,
+            covar_floor_frac=args.covar_floor_frac
         )
         loglik = h[-1] if h else -float("inf")
         if loglik > best_loglik:
