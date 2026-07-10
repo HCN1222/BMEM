@@ -26,6 +26,10 @@ import pandas as pd
 TRAILING_STOP_RATIO = 0.8
 LONG_ENTRY_BUFFER   = 0.02   # effective entry threshold = long_threshold + buffer
 
+FEE_BUY  = 0.001425
+FEE_SELL = 0.001425
+TAX_SELL = 0.003
+
 HOLDINGS_FILENAME   = "holdings.json"
 TRADES_LOG_FILENAME = "trades_log.csv"
 ORDERS_FILENAME_FMT = "orders_{date}.json"
@@ -121,8 +125,16 @@ def _next_trading_day(date_str: str) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
+def break_even_price(entry_price: float) -> float:
+    """Minimum sell price to break even after buy fee, sell fee, and transaction tax."""
+    return round(entry_price * (1 + FEE_BUY) / (1 - FEE_SELL - TAX_SELL), 2)
+
+
 def _pct(sell: float, entry: float) -> float:
-    return round((sell / entry) - 1, 4)
+    """Net return after buy fee, sell fee, and transaction tax."""
+    net  = sell  * (1 - FEE_SELL - TAX_SELL)
+    cost = entry * (1 + FEE_BUY)
+    return round((net / cost) - 1, 4)
 
 
 # ─── CORE UPDATE ──────────────────────────────────────────────────────────────
@@ -375,7 +387,7 @@ def update_portfolio(
         limit_down  = round(today_close * 0.9, 2)
         if stop_price < limit_down:
             continue  # Stop unreachable tomorrow; no order needed tonight
-        ret = (today_close / holding["entry_price"]) - 1
+        ret = _pct(today_close, holding["entry_price"])
         tonight_orders.append({
             "stock_id":              sid,
             "stock_name":            name_map.get(sid, ""),
@@ -396,7 +408,7 @@ def update_portfolio(
         sid         = str(ps["stock_id"])
         today_close = price_lkp.get(sid, {}).get("close")
         entry_price = ps.get("entry_price")
-        ret = round((today_close / entry_price) - 1, 4) if today_close and entry_price else None
+        ret = _pct(today_close, entry_price) if today_close and entry_price else None
         tonight_orders.append({
             "stock_id":              sid,
             "stock_name":            ps["stock_name"],
