@@ -73,7 +73,10 @@ from pipeline_functions import (
     generate_signals,
     FEATURE_COLS,
 )
-from portfolio_tracker import update_portfolio, load_trades_log, TRAILING_STOP_RATIO
+from portfolio_tracker import (
+    update_portfolio, load_trades_log, TRAILING_STOP_RATIO,
+    FEE_BUY, FEE_SELL, TAX_SELL, break_even_price,
+)
 from utils.paths import (
     BrokerPaths,
     DEFAULT_DATA_ROOT,
@@ -766,9 +769,15 @@ def _send_email(
             if holdings or pending_sell_orders:
                 rows = ""
                 for sid, h in holdings.items():
-                    close = price_lkp.get(sid, {}).get("close")
-                    ret_str = f"{(close/h['entry_price']-1):.2%}" if close else "—"
-                    ret_color = "#27ae60" if close and close >= h["entry_price"] else "#e74c3c"
+                    close    = price_lkp.get(sid, {}).get("close")
+                    bep      = break_even_price(h["entry_price"])
+                    if close:
+                        ret       = (close * (1 - FEE_SELL - TAX_SELL)) / (h["entry_price"] * (1 + FEE_BUY)) - 1
+                        ret_str   = f"{ret:.2%}"
+                        ret_color = "#27ae60" if ret >= 0 else "#e74c3c"
+                    else:
+                        ret_str   = "—"
+                        ret_color = "#e74c3c"
                     stop_price = round(h["highest_price"] * TRAILING_STOP_RATIO, 2)
                     peak_prob = h.get("peak_prob_long")
                     prob_str = f"{peak_prob:.2%}" if peak_prob is not None else "—"
@@ -777,6 +786,7 @@ def _send_email(
                         f'<td {_cell}>{_stock_label(sid)}</td>'
                         f'<td {_cell}>{h["entry_date"]}</td>'
                         f'<td {_cell}>{h["entry_price"]}</td>'
+                        f'<td {_cell}>{bep}</td>'
                         f'<td {_cell}>{close if close else "—"}</td>'
                         f'<td {_cell}><b style="color:{ret_color};">{ret_str}</b></td>'
                         f'<td {_cell}>{h["highest_price"]}</td>'
@@ -788,8 +798,14 @@ def _send_email(
                     sid         = str(o["stock_id"])
                     entry_price = o.get("entry_price")
                     close       = price_lkp.get(sid, {}).get("close")
-                    ret_str   = f"{(close/entry_price-1):.2%}" if close and entry_price else "—"
-                    ret_color = "#27ae60" if close and entry_price and close >= entry_price else "#e74c3c"
+                    bep         = break_even_price(entry_price) if entry_price is not None else "—"
+                    if close and entry_price:
+                        ret       = (close * (1 - FEE_SELL - TAX_SELL)) / (entry_price * (1 + FEE_BUY)) - 1
+                        ret_str   = f"{ret:.2%}"
+                        ret_color = "#27ae60" if ret >= 0 else "#e74c3c"
+                    else:
+                        ret_str   = "—"
+                        ret_color = "#e74c3c"
                     peak_prob = o.get("peak_prob_long")
                     prob_str = f"{peak_prob:.2%}" if peak_prob is not None else "—"
                     rows += (
@@ -798,6 +814,7 @@ def _send_email(
                         f'<span style="color:#e67e22;">(待賣出)</span></td>'
                         f'<td {_cell}>{o.get("entry_date","")}</td>'
                         f'<td {_cell}>{entry_price if entry_price is not None else "—"}</td>'
+                        f'<td {_cell}>{bep}</td>'
                         f'<td {_cell}>{close if close else "—"}</td>'
                         f'<td {_cell}><b style="color:{ret_color};">{ret_str}</b></td>'
                         f'<td {_cell}>—</td>'
@@ -809,7 +826,7 @@ def _send_email(
 <h3 style="margin-top:20px;">目前持倉</h3>
 <table style="border-collapse:collapse;font-size:13px;">
   <tr><th {_hcell}>股票</th><th {_hcell}>進場日</th><th {_hcell}>進場價</th>
-      <th {_hcell}>現價</th><th {_hcell}>報酬</th>
+      <th {_hcell}>損益兩平</th><th {_hcell}>現價</th><th {_hcell}>報酬(含費)</th>
       <th {_hcell}>歷史高點</th><th {_hcell}>停損線</th>
       <th {_hcell}>最高Long機率</th></tr>
   {rows}
