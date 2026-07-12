@@ -8,3 +8,4 @@ __pycache__
 .agents
 .claude/settings.local.json
 .vscode
+outputs/1560_old/
