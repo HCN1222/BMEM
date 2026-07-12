@@ -1,0 +1,21 @@
+{
+  "broker_id": "1560",
+  "input_file": "C:\\Users\\USER\\Desktop\\Project\\BMEM\\data\\preprocessed_data\\1560\\hmm\\hmm_data_train.npz",
+  "outdir": "C:\\Users\\USER\\Desktop\\Project\\BMEM\\outputs\\1560\\models\\hmm",
+  "iterations": 200,
+  "n_states": 9,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_total_timesteps": 926929,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 59,
+  "final_log_likelihood": 23855003.704320103
+}
