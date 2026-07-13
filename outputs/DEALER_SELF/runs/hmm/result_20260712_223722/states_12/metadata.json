@@ -1,0 +1,24 @@
+{
+  "broker_id": "DEALER_SELF",
+  "input_file": "E:\\Claude Code\\BMEM\\data\\preprocessed_data\\DEALER_SELF\\hmm\\hmm_data_train.npz",
+  "outdir": "E:\\Claude Code\\BMEM\\outputs\\DEALER_SELF\\runs\\hmm\\result_20260712_223722\\states_12",
+  "iterations": 100,
+  "n_states": 12,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_restarts": 3,
+  "best_seed": null,
+  "restart_log": [],
+  "n_total_timesteps": 971128,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 100,
+  "final_log_likelihood": 11083907.195661789
+}

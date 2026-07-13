@@ -274,6 +274,7 @@ def save_loglik_plot(outdir: Path, log_likelihood_history):
 
 def save_seed_plot(outdir: Path, restart_records, best_seed):
     """Plot each restart seed's final log-likelihood; star the chosen (best) seed."""
+    from matplotlib.lines import Line2D
     recs = [r for r in (restart_records or [])
             if r.get("log_likelihood") is not None and np.isfinite(r["log_likelihood"])]
     if not recs:
@@ -283,16 +284,21 @@ def save_seed_plot(outdir: Path, restart_records, best_seed):
     best = max(recs, key=lambda r: r["log_likelihood"])
 
     plt.figure(figsize=(8, 5))
-    plt.scatter(seeds, lls, s=60, color="steelblue", alpha=0.8, zorder=2, label="restart")
+    plt.scatter(seeds, lls, s=60, color="steelblue", alpha=0.8, zorder=2)
     plt.scatter([best["seed"]], [best["log_likelihood"]], marker="*", s=300,
-                facecolors="gold", edgecolors="black", zorder=3,
-                label=f"chosen (seed={best['seed']})")
+                facecolors="gold", edgecolors="black", zorder=3)
+    # Custom legend handles so the legend star is small (decoupled from the large plot star).
+    handles = [
+        Line2D([], [], marker="o", linestyle="", color="steelblue", markersize=7, label="restart"),
+        Line2D([], [], marker="*", linestyle="", markerfacecolor="gold", markeredgecolor="black",
+               markersize=11, label=f"chosen (seed={best['seed']})"),
+    ]
+    plt.legend(handles=handles, loc="best", fontsize=8)
     plt.xlabel("Seed")
     plt.ylabel("Final Log-likelihood")
     plt.title("Restart Seed Selection (best starred)")
     plt.xticks(seeds)
     plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend(loc="best", fontsize=8)
     plt.tight_layout()
     plt.savefig(outdir / "seed_selection.png", dpi=150)
     plt.close()

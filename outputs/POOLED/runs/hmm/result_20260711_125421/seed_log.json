@@ -1,0 +1,134 @@
+[
+  {
+    "n_states": 2,
+    "best_seed": 25,
+    "best_log_likelihood": 62981975.19616012,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 62981975.19616012
+      }
+    ]
+  },
+  {
+    "n_states": 3,
+    "best_seed": 25,
+    "best_log_likelihood": 69108159.21178736,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 69108159.21178736
+      }
+    ]
+  },
+  {
+    "n_states": 4,
+    "best_seed": 25,
+    "best_log_likelihood": 71796170.95589264,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 71796170.95589264
+      }
+    ]
+  },
+  {
+    "n_states": 5,
+    "best_seed": 25,
+    "best_log_likelihood": 73846704.47367941,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 73846704.47367941
+      }
+    ]
+  },
+  {
+    "n_states": 6,
+    "best_seed": 25,
+    "best_log_likelihood": 77139206.37953797,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 77139206.37953797
+      }
+    ]
+  },
+  {
+    "n_states": 7,
+    "best_seed": 25,
+    "best_log_likelihood": 77975776.18076801,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 77975776.18076801
+      }
+    ]
+  },
+  {
+    "n_states": 8,
+    "best_seed": 25,
+    "best_log_likelihood": 81219899.14559133,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 81219899.14559133
+      }
+    ]
+  },
+  {
+    "n_states": 9,
+    "best_seed": 25,
+    "best_log_likelihood": 83954378.92271824,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 83954378.92271824
+      }
+    ]
+  },
+  {
+    "n_states": 10,
+    "best_seed": 25,
+    "best_log_likelihood": 84742208.67841452,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 84742208.67841452
+      }
+    ]
+  },
+  {
+    "n_states": 11,
+    "best_seed": 25,
+    "best_log_likelihood": 85784057.6609599,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 85784057.6609599
+      }
+    ]
+  },
+  {
+    "n_states": 12,
+    "best_seed": 25,
+    "best_log_likelihood": 86199660.95675118,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 86199660.95675118
+      }
+    ]
+  }
+]

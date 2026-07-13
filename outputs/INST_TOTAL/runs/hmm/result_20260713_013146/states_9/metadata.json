@@ -1,0 +1,24 @@
+{
+  "broker_id": "INST_TOTAL",
+  "input_file": "E:\\Claude Code\\BMEM\\data\\preprocessed_data\\INST_TOTAL\\hmm\\hmm_data_train.npz",
+  "outdir": "E:\\Claude Code\\BMEM\\outputs\\INST_TOTAL\\runs\\hmm\\result_20260713_013146\\states_9",
+  "iterations": 100,
+  "n_states": 9,
+  "covariance_type": "full",
+  "tol": 0.001,
+  "random_seed": 25,
+  "n_restarts": 3,
+  "best_seed": null,
+  "restart_log": [],
+  "n_total_timesteps": 994909,
+  "feature_names": [
+    "z_t",
+    "c_t",
+    "a_t",
+    "s_t",
+    "m_t"
+  ],
+  "n_features": 5,
+  "trained_iterations": 100,
+  "final_log_likelihood": 1406500.595979551
+}

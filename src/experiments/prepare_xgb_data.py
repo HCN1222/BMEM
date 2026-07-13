@@ -204,6 +204,11 @@ df_all = df_all.dropna(subset=['high_ret', 'low_ret'])
 df_all['target_y_long']  = ((df_all['high_ret'] >= 0.10) & (df_all['low_ret'] > -0.10)).astype(int)
 df_all['target_y_short'] = ((df_all['low_ret'] <= -0.10) & (df_all['high_ret'] < 0.10)).astype(int)
 
+# Downcast float64 -> float32 to halve peak memory before the large train/val/eval splits
+# (features, HMM state probs, and amount columns need only float32; XGBoost uses float32 anyway).
+float64_cols = df_all.select_dtypes(include=['float64']).columns
+df_all[float64_cols] = df_all[float64_cols].astype('float32')
+
 print("4. 切分 Train / Validation / Evaluation...")
 # ==========================================
 # 4. Evaluation = is_eval 真實斷點 (封頂 TEST_END)

@@ -1,0 +1,24 @@
+[
+  {
+    "n_states": 12,
+    "best_seed": 26,
+    "best_log_likelihood": 9945264.123685384,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 9935538.43883616
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 9945264.123685384
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 9932851.957745554
+      }
+    ]
+  }
+]

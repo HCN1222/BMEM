@@ -131,7 +131,16 @@ def main():
     
     bics = []
     log_likelihoods = []
+    # Resume 時載入既有 seed_log，避免覆蓋掉先前已訓練 state 的 seed 紀錄
     seed_log = []
+    if args.resume_dir:
+        existing_seed_log = eval_master_dir / "seed_log.json"
+        if existing_seed_log.exists():
+            try:
+                seed_log = json.load(open(existing_seed_log, encoding="utf-8"))
+                print(f"Loaded existing seed_log (states: {sorted(e['n_states'] for e in seed_log)})")
+            except Exception:
+                seed_log = []
     state_range = range(args.min_states, args.max_states + 1)
 
     best_bic = np.inf
@@ -192,9 +201,15 @@ def main():
             "restarts": restart_records,
         })
 
-        # 計算 BIC（先修復 covariance 確保 model.score() 不會 crash）
-        _repair_covars(model, args.covariance_type, n_states, epsilon=1e-2)
-        bic, log_l, params = calculate_bic(model, observations, lengths, args.covariance_type)
+        # 計算 BIC：直接用訓練得到的 log-likelihood（與 resume 的 bic_from_metadata 完全一致）。
+        # 不再對模型重新 score——先前的 _repair_covars(1e-2) 會對「未標準化、變異數極小」的特徵
+        # 套過大的絕對 floor，汙染 covariance 導致 loglik 崩壞、BIC 錯誤。
+        log_l = best_restart_loglik
+        n_features = observations.shape[1]
+        cov_params = (n_states * n_features if args.covariance_type == "diag"
+                      else n_states * (n_features * (n_features + 1)) / 2)
+        params = n_states * (n_states - 1) + (n_states - 1) + n_states * n_features + cov_params
+        bic = -2 * log_l + params * np.log(observations.shape[0])
         bics.append(bic)
         log_likelihoods.append(log_l)
         
@@ -247,6 +262,8 @@ def main():
     plt.close()
 
     seed_log_path = eval_master_dir / "seed_log.json"
+    # 依 n_states 去重（保留最後訓練的）並排序，避免 resume 重疊產生重複項
+    seed_log = sorted({e["n_states"]: e for e in seed_log}.values(), key=lambda e: e["n_states"])
     with open(seed_log_path, "w", encoding="utf-8") as f:
         json.dump(seed_log, f, indent=2, ensure_ascii=False)
 

@@ -1,0 +1,244 @@
+[
+  {
+    "n_states": 2,
+    "best_seed": 25,
+    "best_log_likelihood": -338513.7819281244,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": -338513.7819281244
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": -341590.73017750174
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": -341590.73017750226
+      }
+    ]
+  },
+  {
+    "n_states": 3,
+    "best_seed": 25,
+    "best_log_likelihood": 43657.55867044959,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 43657.55867044959
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 28884.157787368196
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 28884.157787368335
+      }
+    ]
+  },
+  {
+    "n_states": 4,
+    "best_seed": 27,
+    "best_log_likelihood": 475833.3141597212,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 140059.61693774245
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 475833.31414719805
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 475833.3141597212
+      }
+    ]
+  },
+  {
+    "n_states": 5,
+    "best_seed": 26,
+    "best_log_likelihood": 812561.6212081617,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 571591.4509405539
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 812561.6212081617
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 568984.7335803354
+      }
+    ]
+  },
+  {
+    "n_states": 6,
+    "best_seed": 26,
+    "best_log_likelihood": 908879.232232529,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 692409.5081315133
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 908879.232232529
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 709057.849680033
+      }
+    ]
+  },
+  {
+    "n_states": 7,
+    "best_seed": 27,
+    "best_log_likelihood": 1142906.8632246042,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 835713.9245725287
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 1109779.741389261
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 1142906.8632246042
+      }
+    ]
+  },
+  {
+    "n_states": 8,
+    "best_seed": 26,
+    "best_log_likelihood": 1261371.508511615,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 1152635.3545251288
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 1261371.508511615
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 1167007.3960294416
+      }
+    ]
+  },
+  {
+    "n_states": 9,
+    "best_seed": 25,
+    "best_log_likelihood": 1406500.595979551,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 1406500.595979551
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 1292620.5922126928
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 1299612.1982472588
+      }
+    ]
+  },
+  {
+    "n_states": 10,
+    "best_seed": 26,
+    "best_log_likelihood": 1477682.345369185,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 1462316.6407388325
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 1477682.345369185
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 1463275.4643466938
+      }
+    ]
+  },
+  {
+    "n_states": 11,
+    "best_seed": 26,
+    "best_log_likelihood": 1596635.8985951398,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 1549799.0976657197
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 1596635.8985951398
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 1546044.0843502756
+      }
+    ]
+  },
+  {
+    "n_states": 12,
+    "best_seed": 26,
+    "best_log_likelihood": 1654484.014073861,
+    "restarts": [
+      {
+        "restart": 0,
+        "seed": 25,
+        "log_likelihood": 1604428.2812833635
+      },
+      {
+        "restart": 1,
+        "seed": 26,
+        "log_likelihood": 1654484.014073861
+      },
+      {
+        "restart": 2,
+        "seed": 27,
+        "log_likelihood": 1569872.8853234407
+      }
+    ]
+  }
+]
