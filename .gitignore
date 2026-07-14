@@ -10,3 +10,5 @@ src\experiments\__pycache__
 
 # BIC sweep 的模型還原檔太大（含全量 posteriors，單檔可達數百 MB），不入庫
 outputs/*/runs/**/*.npz
+# 部署/sweep 模型的 npz 太大（含全量 posteriors），不入庫
+outputs/*/models/**/*.npz
