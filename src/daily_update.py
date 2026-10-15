@@ -738,7 +738,7 @@ def _send_email(
             if executed:
                 rows = ""
                 for t in executed:
-                    action_color = "#27ae60" if t["action"] == "BUY" else "#e74c3c"
+                    action_color = _UP_C if t["action"] == "BUY" else _DOWN_C
                     ret_str = f"{float(t['return_pct']):.2%}" if t.get("return_pct") != "" else "—"
                     rows += (
                         f'<tr>'
@@ -774,10 +774,10 @@ def _send_email(
                     if close:
                         ret       = (close * (1 - FEE_SELL - TAX_SELL)) / (h["entry_price"] * (1 + FEE_BUY)) - 1
                         ret_str   = f"{ret:.2%}"
-                        ret_color = "#27ae60" if ret >= 0 else "#e74c3c"
+                        ret_color = _UP_C if ret >= 0 else _DOWN_C
                     else:
                         ret_str   = "—"
-                        ret_color = "#e74c3c"
+                        ret_color = "#888"
                     stop_price = round(h["highest_price"] * TRAILING_STOP_RATIO, 2)
                     peak_prob = h.get("peak_prob_long")
                     prob_str = f"{peak_prob:.2%}" if peak_prob is not None else "—"
@@ -802,10 +802,10 @@ def _send_email(
                     if close and entry_price:
                         ret       = (close * (1 - FEE_SELL - TAX_SELL)) / (entry_price * (1 + FEE_BUY)) - 1
                         ret_str   = f"{ret:.2%}"
-                        ret_color = "#27ae60" if ret >= 0 else "#e74c3c"
+                        ret_color = _UP_C if ret >= 0 else _DOWN_C
                     else:
                         ret_str   = "—"
-                        ret_color = "#e74c3c"
+                        ret_color = "#888"
                     peak_prob = o.get("peak_prob_long")
                     prob_str = f"{peak_prob:.2%}" if peak_prob is not None else "—"
                     rows += (
@@ -913,14 +913,14 @@ def _send_email(
 
         body_html = f"""
 <html><body style="font-family:Arial,sans-serif;">
-<h2 style="color:#27ae60;">BMEM Daily Signals — {target_date}</h2>
+<h2 style="color:#2c3e50;">BMEM Daily Signals — {target_date}</h2>
 <table style="font-size:14px;margin-bottom:16px;">
   <tr><td style="padding:4px 12px 4px 0;color:#555;">候選股票數</td>
       <td><strong>{n_candidates}</strong></td></tr>
   <tr><td style="padding:4px 12px 4px 0;color:#555;">Long 訊號 (&ge;{LONG_THRESHOLD:.0%})</td>
-      <td><strong style="color:#27ae60;">{n_long}</strong></td></tr>
+      <td><strong style="color:{_UP_C};">{n_long}</strong></td></tr>
   <tr><td style="padding:4px 12px 4px 0;color:#555;">Short 訊號 (&ge;{SHORT_THRESHOLD:.0%})</td>
-      <td><strong style="color:#e74c3c;">{n_short}</strong></td></tr>
+      <td><strong style="color:{_DOWN_C};">{n_short}</strong></td></tr>
 </table>
 {portfolio_html}
 {table_html}
