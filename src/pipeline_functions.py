@@ -482,15 +482,25 @@ def compute_rolling_hmm_proba(
         probs, computed = _rolling_predict_proba(
             group[feature_cols].values, model, window=window, target_indices=target_idx
         )
+        if not computed:
+            # No row on any inference date for this sequence — e.g. a stock that
+            # stopped trading before the target date but still has valid feature
+            # rows earlier in the window. Nothing to score, and an empty `probs`
+            # would not match prob_cols.
+            continue
         kept_index = group.index[computed]
         result_parts.append(pd.DataFrame(probs, index=kept_index, columns=prob_cols))
-
-    prob_df = pd.concat(result_parts)
 
     if filter_dates is not None:
         base = df[pd.to_datetime(df['date']).dt.normalize().isin(filter_dates)]
     else:
         base = df
+
+    if not result_parts:
+        empty_probs = pd.DataFrame(index=base.index, columns=prob_cols, dtype=float)
+        return base.join(empty_probs)
+
+    prob_df = pd.concat(result_parts)
     return base.join(prob_df)
 
 
